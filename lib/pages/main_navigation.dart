@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+// import 'package:package_info_plus/package_info_plus.dart';  // Commented out as we use hardcoded version
 import 'announcements_page.dart';
 import 'room_page.dart';
 import 'profile_page.dart';
@@ -16,12 +17,14 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
   String _userName = '';
+  String _version = 'alpha-test 1.0.0';  // Hardcoded version
   final ApiService _apiService = ApiService();
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    // _loadVersion();  // Commented out as we use hardcoded version
   }
 
   Future<void> _loadUserData() async {
@@ -34,6 +37,13 @@ class _MainNavigationState extends State<MainNavigation> {
       });
     }
   }
+
+  // Future<void> _loadVersion() async {  // Commented out as we use hardcoded version
+  //   final packageInfo = await PackageInfo.fromPlatform();
+  //   setState(() {
+  //     _version = packageInfo.version;
+  //   });
+  // }
 
   String get _title {
     switch (_selectedIndex) {

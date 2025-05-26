@@ -148,6 +148,14 @@ class ApiService {
         });
       });
 
+      // socket?.on('connect', (data) {
+      //   print('บอทเชื่อมต่อ socket สำเร็จ');
+      //   // ดูห้องที่บอท join อยู่
+      //   socket?.emit('getRooms', null, (rooms) {
+      //     print('ห้องที่บอท join: $rooms');
+      //   });
+      // });
+
     } catch (e) {
       print('Error initializing socket: $e');
       // Attempt to reconnect on initialization error
@@ -389,8 +397,9 @@ class ApiService {
     
     // Listen for newMessage event
     socket?.on('newMessage', (data) {
-      print('\n=== New Message Event Received (Count: ${DateTime.now().millisecondsSinceEpoch}) ===');
-      print('Raw data: $data');
+      print('=== รับข้อความใหม่ ===');
+      print('เป็นข้อความจากบอท: ${(data is Map && data['sender'] is Map) ? (data['sender'] as Map)['role'] == 'bot' : false}');
+      print('ข้อมูลทั้งหมด: $data');
       print('Socket connected: ${socket?.connected}');
       print('Socket ID: ${socket?.id}');
       
@@ -399,14 +408,17 @@ class ApiService {
         dynamic messageData;
         if (data is List) {
           print('Data is a List, length: ${data.length}');
-          print('First element type: ${data[0].runtimeType}');
-          if (data.length > 1) {
-            print('Second element type: ${data[1].runtimeType}');
+          if (data.isEmpty) {
+            print('Empty data list received');
+            return;
           }
           
-          // Take first element if it's a Map, ignore callback
-          if (data.isNotEmpty && data[0] is Map) {
-            messageData = data[0];
+          // Safely check first element
+          final firstElement = data.first;
+          print('First element type: ${firstElement.runtimeType}');
+          
+          if (firstElement is Map) {
+            messageData = firstElement;
             print('Extracted message from list:');
             print('- Message ID: ${messageData['_id']}');
             print('- Room: ${messageData['room']}');
@@ -416,7 +428,7 @@ class ApiService {
             print('- Is Read: ${messageData['isRead']}');
             print('- Success: ${messageData['success']}');
           } else {
-            print('No valid message found in data array');
+            print('First element is not a Map, type: ${firstElement.runtimeType}');
             return;
           }
         } else if (data is Map) {
@@ -427,7 +439,12 @@ class ApiService {
           return;
         }
 
-        // Process the message data
+        if (messageData == null) {
+          print('No valid message data found');
+          return;
+        }
+
+        // Process the message data with null safety
         final processedMessage = {
           '_id': messageData['_id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
           'room': messageData['room']?.toString(),
@@ -660,6 +677,8 @@ class ApiService {
   Future<void> ensureInitialized() async {
     if (!_isInitialized) {
       await _initialize();
+    }else{
+      print('Socket already initialized');
     }
   }
 }

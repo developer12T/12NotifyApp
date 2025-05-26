@@ -60,6 +60,11 @@ class _ChatPageState extends State<ChatPage> {
     
     _scrollController.addListener(_scrollListener);
     
+    // Add listener to message controller
+    _messageController.addListener(() {
+      setState(() {}); // Update UI when text changes
+    });
+    
     setState(() {
       isConnected = widget.apiService.socket?.connected ?? false;
       isConnecting = !isConnected && widget.apiService.socket != null;
@@ -395,6 +400,7 @@ class _ChatPageState extends State<ChatPage> {
             'isImage': messageData['isImage'] ?? (messageData['imageUrl'] != null),
             'imageUrl': messageData['imageUrl'],
             'isAdminNotification': messageData['isAdminNotification'] ?? false,
+            'role': messageData['sender'] is Map ? messageData['sender']['role'] : null,
           };
 
           print('9️⃣ Created new message object:');
@@ -972,6 +978,9 @@ class _ChatPageState extends State<ChatPage> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     
+    // ตรวจสอบว่าเป็น desktop หรือไม่
+    final isDesktop = MediaQuery.of(context).size.width > 600;
+    
     // ตรวจสอบสิทธิ์การเป็น owner
     final bool isOwner = widget.userRole.toLowerCase() == 'owner';
     
@@ -981,11 +990,13 @@ class _ChatPageState extends State<ChatPage> {
         elevation: 0,
         backgroundColor: colorScheme.primary,
         foregroundColor: Colors.white,
+        // ปรับ appBar สำหรับ desktop
+        toolbarHeight: isDesktop ? 80 : null,
         title: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: isDesktop ? 50 : 40,
+              height: isDesktop ? 50 : 40,
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
                 shape: BoxShape.circle,
@@ -993,28 +1004,31 @@ class _ChatPageState extends State<ChatPage> {
               child: Center(
                 child: Text(
                   widget.roomName.characters.first.toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 18,
+                  style: TextStyle(
+                    fontSize: isDesktop ? 24 : 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: isDesktop ? 16 : 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     widget.roomName,
-                    style: const TextStyle(
-                      fontSize: 18,
+                    style: TextStyle(
+                      fontSize: isDesktop ? 22 : 18,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   Container(
-                    margin: const EdgeInsets.only(left: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    margin: EdgeInsets.only(left: isDesktop ? 12 : 8),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isDesktop ? 12 : 8,
+                      vertical: isDesktop ? 6 : 4,
+                    ),
                     decoration: BoxDecoration(
                       color: isConnected 
                           ? Colors.green 
@@ -1029,7 +1043,10 @@ class _ChatPageState extends State<ChatPage> {
                           : isConnecting 
                               ? 'กำลังเชื่อมต่อ...' 
                               : 'ออฟไลน์',
-                      style: const TextStyle(fontSize: 12, color: Colors.white),
+                      style: TextStyle(
+                        fontSize: isDesktop ? 14 : 12,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
@@ -1110,7 +1127,11 @@ class _ChatPageState extends State<ChatPage> {
                         child: ListView.builder(
                           controller: _scrollController,
                           reverse: true,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          // ปรับ padding สำหรับ desktop
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isDesktop ? 24 : 16,
+                            vertical: isDesktop ? 12 : 8,
+                          ),
                           itemCount: messages.length + (isLoadingMore ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index == messages.length) {
@@ -1176,20 +1197,23 @@ class _ChatPageState extends State<ChatPage> {
                                 children: [
                                   if (dateSeparator != null) dateSeparator,
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 4),
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: isDesktop ? 6 : 4,
+                                    ),
                                     child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       mainAxisAlignment: isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
                                       children: [
                                         if (!isCurrentUser) ...[
                                           Container(
-                                            width: 36,
-                                            height: 36,
-                                            margin: const EdgeInsets.only(right: 8),
+                                            // ปรับขนาดรูปโปรไฟล์สำหรับ desktop
+                                            width: isDesktop ? 48 : 42,
+                                            height: isDesktop ? 48 : 42,
+                                            margin: EdgeInsets.only(right: isDesktop ? 12 : 8),
                                             decoration: BoxDecoration(
                                               shape: BoxShape.circle,
                                               color: sender['role'] == 'bot' 
-                                                  ? Colors.red.withOpacity(0.1)
+                                                  ? Colors.white.withOpacity(0.1)
                                                   : null,
                                               image: sender['role'] != 'bot' && sender['imgUrl'] != null
                                                   ? DecorationImage(
@@ -1211,10 +1235,9 @@ class _ChatPageState extends State<ChatPage> {
                                                   : null,
                                             ),
                                             child: sender['role'] == 'bot'
-                                                ? const Icon(
-                                                    Icons.campaign,
-                                                    color: Colors.red,
-                                                    size: 20,
+                                                ? Image.asset(
+                                                    'assets/images/mascot.png',
+                                                    fit: BoxFit.cover,
                                                   )
                                                 : sender['imgUrl'] == null
                                                     ? Center(
@@ -1235,12 +1258,17 @@ class _ChatPageState extends State<ChatPage> {
                                             children: [
                                               if (!isCurrentUser)
                                                 Padding(
-                                                  padding: const EdgeInsets.only(left: 12, bottom: 4),
+                                                  padding: EdgeInsets.only(
+                                                    left: isDesktop ? 16 : 12,
+                                                    bottom: isDesktop ? 6 : 4,
+                                                  ),
                                                   child: Text(
                                                     senderName,
                                                     style: TextStyle(
-                                                      fontSize: 13,
-                                                      color: Colors.grey[700],
+                                                      fontSize: isDesktop ? 15 : 13,
+                                                      color: sender['role'] == 'bot' 
+                                                          ? Colors.red 
+                                                          : Colors.grey[700],
                                                       fontWeight: FontWeight.w600,
                                                     ),
                                                   ),
@@ -1248,10 +1276,13 @@ class _ChatPageState extends State<ChatPage> {
                                               AnimatedContainer(
                                                 duration: const Duration(milliseconds: 300),
                                                 margin: EdgeInsets.only(
-                                                  left: isCurrentUser ? 64 : 0,
-                                                  right: isCurrentUser ? 0 : 64,
+                                                  left: isCurrentUser ? (isDesktop ? 80 : 64) : 0,
+                                                  right: isCurrentUser ? 0 : (isDesktop ? 80 : 64),
                                                 ),
-                                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: isDesktop ? 20 : 16,
+                                                  vertical: isDesktop ? 16 : 12,
+                                                ),
                                                 decoration: BoxDecoration(
                                                   color: message['isSending'] == true
                                                       ? Colors.grey[200]
@@ -1276,14 +1307,14 @@ class _ChatPageState extends State<ChatPage> {
                                                   crossAxisAlignment: CrossAxisAlignment.start,
                                                   children: [
                                                     _buildMessageContent(message, isCurrentUser),
-                                                    const SizedBox(height: 4),
+                                                    SizedBox(height: isDesktop ? 6 : 4),
                                                     Row(
                                                       mainAxisSize: MainAxisSize.min,
                                                       children: [
                                                         if (message['isSending'] == true)
                                                           SizedBox(
-                                                            width: 12,
-                                                            height: 12,
+                                                            width: isDesktop ? 14 : 12,
+                                                            height: isDesktop ? 14 : 12,
                                                             child: CircularProgressIndicator(
                                                               strokeWidth: 2,
                                                               valueColor: AlwaysStoppedAnimation<Color>(
@@ -1292,11 +1323,11 @@ class _ChatPageState extends State<ChatPage> {
                                                             ),
                                                           ),
                                                         if (message['isSending'] == true)
-                                                          const SizedBox(width: 4),
+                                                          SizedBox(width: isDesktop ? 6 : 4),
                                                         Text(
                                                           formatTime(message['timestamp']),
                                                           style: TextStyle(
-                                                            fontSize: 11,
+                                                            fontSize: isDesktop ? 12 : 11,
                                                             color: message['isSending'] == true
                                                                 ? Colors.grey[400]
                                                                 : isCurrentUser 

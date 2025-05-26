@@ -10,6 +10,20 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'services/notification_service.dart'; 
 
+class CustomDebugBanner extends StatelessWidget {
+  const CustomDebugBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Banner(
+      message: 'ALPHA-TEST',
+      location: BannerLocation.topStart,
+      color: Colors.red,
+      child: Container(),
+    );
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -37,6 +51,15 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'NotiOneTwo',
+      debugShowCheckedModeBanner: false,  // ปิด debug banner ปกติ
+      builder: (context, child) {
+        return Banner(
+          message: 'ALPHA-TEST',
+          location: BannerLocation.bottomEnd,
+          color: Colors.red,
+          child: child!,
+        );
+      },
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF004B93)),
         useMaterial3: true,
