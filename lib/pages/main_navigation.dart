@@ -19,6 +19,12 @@ class _MainNavigationState extends State<MainNavigation> {
   String _userName = '';
   String _version = 'alpha-test 1.0.0';  // Hardcoded version
   final ApiService _apiService = ApiService();
+  // Add keys for each page
+  final List<GlobalKey<State<StatefulWidget>>> _pageKeys = [
+    GlobalKey<State<StatefulWidget>>(),
+    GlobalKey<State<StatefulWidget>>(),
+    GlobalKey<State<StatefulWidget>>(),
+  ];
 
   @override
   void initState() {
@@ -59,9 +65,14 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    if (_selectedIndex != index) {
+      setState(() {
+        _selectedIndex = index;
+      });
+      
+      // Force rebuild the selected page by recreating its key
+      _pageKeys[index] = GlobalKey<State<StatefulWidget>>();
+    }
   }
 
   Future<void> _logout() async {
@@ -192,9 +203,9 @@ class _MainNavigationState extends State<MainNavigation> {
       body: IndexedStack(
         index: _selectedIndex,
         children: [
-          const AnnouncementsPage(),
-          RoomPage(apiService: _apiService),
-          const ProfilePage(),
+          AnnouncementsPage(key: _pageKeys[0]),
+          RoomPage(key: _pageKeys[1], apiService: _apiService),
+          ProfilePage(key: _pageKeys[2]),
         ],
       ),
       bottomNavigationBar: Container(
