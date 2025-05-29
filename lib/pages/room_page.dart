@@ -15,6 +15,7 @@ class ChatRoom {
   final String color;
   final int memberCount;
   final String userRole;
+  final String? imageUrl;
 
   ChatRoom({
     required this.id,
@@ -26,6 +27,7 @@ class ChatRoom {
     required this.color,
     required this.memberCount,
     required this.userRole,
+    this.imageUrl,
   });
 
   factory ChatRoom.fromJson(Map<String, dynamic> json) {
@@ -39,6 +41,7 @@ class ChatRoom {
       color: json['color'] ?? '#2196F3',
       memberCount: json['memberCount'] ?? 1,
       userRole: json['userRole']?.toString().toLowerCase() ?? 'member',
+      imageUrl: json['imageUrl'],
     );
   }
 
@@ -383,6 +386,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
       color: room.color,
       memberCount: room.memberCount,
       userRole: room.userRole,
+      imageUrl: room.imageUrl,
     );
 
     setState(() {
@@ -413,6 +417,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
         color: room.color,
         memberCount: room.memberCount,
         userRole: room.userRole,
+        imageUrl: room.imageUrl,
       );
       
       setState(() {
@@ -562,7 +567,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                           itemBuilder: (context, index) {
                             final room = _chatRooms[index];
                             return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                               child: Material(
                                 color: Colors.white,
                                 elevation: 2,
@@ -571,7 +576,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                   borderRadius: BorderRadius.circular(18),
                                   onTap: () => _handleRoomTap(room),
                                   child: Container(
-                                    height: 80,
+                                    height: 70,
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                     child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.center,
@@ -591,10 +596,15 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                           child: CircleAvatar(
                                             radius: 28,
                                             backgroundColor: Color(int.parse(room.color.replaceAll('#', '0xFF'))),
-                                            child: Text(
-                                              room.name.substring(0, 1),
-                                              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                                            ),
+                                            backgroundImage: (room.imageUrl != null && room.imageUrl!.isNotEmpty)
+                                                ? NetworkImage('${ApiService.baseUrl}${room.imageUrl}')
+                                                : null,
+                                            child: (room.imageUrl == null || room.imageUrl!.isEmpty)
+                                                ? Text(
+                                                    room.name.substring(0, 1),
+                                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                                                  )
+                                                : null,
                                           ),
                                         ),
                                         const SizedBox(width: 14),
@@ -612,9 +622,9 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                                           child: Text(
                                                             room.name,
                                                             style: TextStyle(
-                                                              fontWeight: FontWeight.bold,
-                                                              fontSize: room.name.length > 20 ? 14 : 17,
-                                                              color: room.name.length > 20 ? Colors.grey.shade700 : Colors.black,
+                                                              fontWeight: FontWeight.w500,
+                                                              fontSize: room.name.length > 20 ? 12 : 12,
+                                                              color: room.name.length > 20 ? Colors.black : Colors.black,
                                                             ),
                                                             overflow: TextOverflow.ellipsis,
                                                             maxLines: 1,
@@ -632,14 +642,14 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                                   const SizedBox(width: 8),
                                                   Text(
                                                     room.lastMessageTime,
-                                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                                                    style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
                                                   ),
                                                 ],
                                               ),
                                               const SizedBox(height: 6),
                                               Text(
                                                 '${room.lastMessageSender(_currentUserEmployeeId, room.name)}: ${room.lastMessageText}',
-                                                style: const TextStyle(fontSize: 14, color: Colors.grey),
+                                                style: const TextStyle(fontSize: 10, color: Colors.grey),
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
@@ -649,8 +659,8 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                         if (room.unreadCount > 0)
                                           Container(
                                             margin: const EdgeInsets.only(left: 10),
-                                            width: 28,
-                                            height: 28,
+                                            width: 20,
+                                            height: 20,
                                             decoration: BoxDecoration(
                                               color: Colors.green.shade400,
                                               shape: BoxShape.circle,
@@ -665,7 +675,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                             alignment: Alignment.center,
                                             child: Text(
                                               room.unreadCount.toString(),
-                                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                                             ),
                                           ),
                                       ],
@@ -705,6 +715,8 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
               roomName: room.name,
               apiService: widget.apiService,
               userRole: room.userRole,
+              imageUrl: room.imageUrl,
+              color: room.color,
             ),
           ),
         );

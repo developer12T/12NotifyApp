@@ -4,6 +4,7 @@ import 'dart:convert';
 // import 'package:package_info_plus/package_info_plus.dart';  // Commented out as we use hardcoded version
 import 'announcements_page.dart';
 import 'room_page.dart';
+import 'direct_message_page.dart';
 import 'profile_page.dart';
 import '../services/api_service.dart';
 
@@ -21,6 +22,7 @@ class _MainNavigationState extends State<MainNavigation> {
   final ApiService _apiService = ApiService();
   // Add keys for each page
   final List<GlobalKey<State<StatefulWidget>>> _pageKeys = [
+    GlobalKey<State<StatefulWidget>>(),
     GlobalKey<State<StatefulWidget>>(),
     GlobalKey<State<StatefulWidget>>(),
     GlobalKey<State<StatefulWidget>>(),
@@ -56,8 +58,10 @@ class _MainNavigationState extends State<MainNavigation> {
       case 0:
         return 'ประกาศ';
       case 1:
-        return 'แชท';
+        return 'กลุ่ม';
       case 2:
+        return 'แชท';
+      case 3:
         return 'ข้อมูลส่วนตัว';
       default:
         return 'NotiOneTwo';
@@ -170,7 +174,7 @@ class _MainNavigationState extends State<MainNavigation> {
             ],
           ),
           child: AppBar(
-            backgroundColor: _selectedIndex == 2 ? const Color(0xFF00569D) : Colors.white,
+            backgroundColor: _selectedIndex == 3 ? const Color(0xFF00569D) : Colors.white,
             elevation: 0,
             title: Row(
               children: [
@@ -179,21 +183,23 @@ class _MainNavigationState extends State<MainNavigation> {
                 Text(
                   _selectedIndex == 0
                       ? 'ข่าวสาร/ประกาศ'
-                      : _selectedIndex == 1
+                       : _selectedIndex == 1
+                              ? 'กลุ่มของคุณ'
+                      : _selectedIndex == 2
                           ? 'แชทของคุณ'
                           : 'ข้อมูลของคุณ',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.5,
-                    color: _selectedIndex == 2 ? Colors.white : Colors.black,
+                    color: _selectedIndex == 3 ? Colors.white : Colors.black,
                   ),
                 ),
               ],
             ),
             actions: [
               IconButton(
-                icon: Icon(Icons.logout, color: _selectedIndex == 2 ? Colors.white : Colors.black),
+                icon: Icon(Icons.logout, color: _selectedIndex == 3 ? Colors.white : Colors.black),
                 onPressed: _logout,
               ),
             ],
@@ -205,7 +211,8 @@ class _MainNavigationState extends State<MainNavigation> {
         children: [
           AnnouncementsPage(key: _pageKeys[0]),
           RoomPage(key: _pageKeys[1], apiService: _apiService),
-          ProfilePage(key: _pageKeys[2]),
+          DirectMessagePage(key: _pageKeys[2], recipientId: 'EMP002', recipientName: 'คุณลูกค้า'),
+          ProfilePage(key: _pageKeys[3]),
         ],
       ),
       bottomNavigationBar: Container(
@@ -242,14 +249,23 @@ class _MainNavigationState extends State<MainNavigation> {
               BottomNavigationBarItem(
                 icon: Padding(
                   padding: EdgeInsets.only(top: 4),
-                  child: Icon(Icons.campaign_rounded),
+                  child: Icon(Icons.notifications_active),
+                  // child: Icon(Icons.campaign_rounded),
                 ),
                 label: 'ประกาศ',
               ),
               BottomNavigationBarItem(
                 icon: Padding(
                   padding: EdgeInsets.only(top: 4),
-                  child: Icon(Icons.forum_rounded),
+                  child: Icon(Icons.people_alt),
+                  // child: Icon(Icons.group_rounded),
+                ),
+                label: 'กลุ่ม',
+              ),
+               BottomNavigationBarItem(
+                icon: Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Icon(Icons.question_answer),
                 ),
                 label: 'แชท',
               ),

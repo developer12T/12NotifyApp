@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../services/api_service.dart';
 import 'add_members_page.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 
 class GroupSettingsPage extends StatefulWidget {
   final String roomId;
@@ -32,6 +34,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
   List<dynamic> _roomMembers = [];
   bool _isLoadingMembers = false;
   Map<String, dynamic>? _roomData;
+  File? _selectedImage;
 
   final List<Color> _colorOptions = [
     const Color(0xFF2196F3), // Blue
@@ -128,18 +131,21 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
     });
 
     try {
-      final response = await http.put(
-        Uri.parse('${ApiService.baseUrl}/api/rooms/${widget.roomId}'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({
-          'name': _nameController.text.trim(),
-          'description': _descriptionController.text.trim(),
-          'color': '#${_selectedColor.value.toRadixString(16).substring(2)}',
-        }),
-      );
+      var uri = Uri.parse('${ApiService.baseUrl}/api/rooms/${widget.roomId}');
+      var request = http.MultipartRequest('PUT', uri);
+
+      request.fields['name'] = _nameController.text.trim();
+      request.fields['description'] = _descriptionController.text.trim();
+      request.fields['color'] = '#${_selectedColor.value.toRadixString(16).substring(2)}';
+
+      if (_selectedImage != null) {
+        request.files.add(await http.MultipartFile.fromPath('image', _selectedImage!.path));
+      } else if (_roomData?['imageUrl'] != null) {
+        request.fields['imageUrl'] = _roomData!['imageUrl'];
+      }
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -169,11 +175,17 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
         _errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (pickedFile != null) {
+      setState(() {
+        _selectedImage = File(pickedFile.path);
+      });
     }
   }
 
@@ -411,6 +423,23 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
                               }).toList(),
                             ),
                             const SizedBox(height: 24),
+                            GestureDetector(
+                              onTap: _pickImage,
+                              child: CircleAvatar(
+                                radius: 40,
+                                backgroundImage: _selectedImage != null
+                                    ? FileImage(_selectedImage!)
+                                    : (_roomData?['imageUrl'] != null
+                                        ? NetworkImage('${ApiService.baseUrl}${_roomData!['imageUrl']}')
+                                        : null) as ImageProvider?,
+                                child: _selectedImage == null && (_roomData?['imageUrl'] == null)
+                                    ? Icon(Icons.camera_alt, size: 40, color: Colors.grey)
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text('แตะเพื่อเปลี่ยนรูปห้อง', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            const SizedBox(height: 24),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
@@ -523,85 +552,273 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
                                   final member = _roomMembers[index];
                                   final isAdmin = member['isAdmin'] == true;
                                   final role = member['role']?.toString().toLowerCase() ?? 'member';
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    child: Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 20,
-                                          backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
-                                          backgroundImage: member['profileImage'] != null
-                                              ? NetworkImage(member['profileImage'])
-                                              : null,
-                                          child: member['profileImage'] == null
-                                              ? Text(
-                                                  member['fullName']?[0]?.toUpperCase() ?? '?',
-                                                  style: TextStyle(
-                                                    color: theme.colorScheme.primary,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                )
-                                              : null,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
+                                  return InkWell(
+                                    onTap: role == 'bot' ? null : () {
+                                      showModalBottomSheet(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        backgroundColor: Colors.transparent,
+                                        builder: (context) => Container(
+                                          height: MediaQuery.of(context).size.height * 0.75,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.only(
+                                              topLeft: Radius.circular(20),
+                                              topRight: Radius.circular(20),
+                                            ),
+                                          ),
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      member['fullName'] ?? 'ไม่ระบุชื่อ',
-                                                      style: const TextStyle(
-                                                        fontWeight: FontWeight.w500,
-                                                        fontSize: 15,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 4,
-                                                    ),
-                                                    decoration: BoxDecoration(
-                                                      color: role == 'owner'
-                                                          ? Colors.purple.withOpacity(0.1)
-                                                          : isAdmin
-                                                              ? theme.colorScheme.primary.withOpacity(0.1)
-                                                              : Colors.grey.withOpacity(0.1),
-                                                      borderRadius: BorderRadius.circular(12),
-                                                    ),
-                                                    child: Text(
-                                                      role == 'owner'
-                                                          ? 'เจ้าของ'
-                                                          : isAdmin
-                                                              ? 'แอดมิน'
-                                                              : 'สมาชิก',
-                                                      style: TextStyle(
-                                                        color: role == 'owner'
-                                                            ? Colors.purple
-                                                            : isAdmin
-                                                                ? theme.colorScheme.primary
-                                                                : Colors.grey.shade700,
-                                                        fontSize: 12,
-                                                        fontWeight: FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
+                                              // Handle bar
+                                              Container(
+                                                margin: const EdgeInsets.only(top: 8),
+                                                width: 40,
+                                                height: 4,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.grey[300],
+                                                  borderRadius: BorderRadius.circular(2),
+                                                ),
                                               ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                member['department'] ?? 'ไม่ระบุแผนก',
-                                                style: theme.textTheme.bodySmall?.copyWith(
-                                                  color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
+                                              // Profile content
+                                              Expanded(
+                                                child: SingleChildScrollView(
+                                                  child: Column(
+                                                    children: [
+                                                      // Profile image
+                                                      Container(
+                                                        margin: const EdgeInsets.only(top: 24),
+                                                        width: 120,
+                                                        height: 120,
+                                                        decoration: BoxDecoration(
+                                                          shape: BoxShape.circle,
+                                                          color: role == 'bot' 
+                                                              ? Colors.white.withOpacity(0.1)
+                                                              : null,
+                                                          image: role != 'bot' && member['profileImage'] != null
+                                                              ? DecorationImage(
+                                                                  image: NetworkImage(member['profileImage']),
+                                                                  fit: BoxFit.cover,
+                                                                  onError: (exception, stackTrace) {
+                                                                    print('Error loading profile image: $exception');
+                                                                  },
+                                                                )
+                                                              : null,
+                                                          gradient: role != 'bot' && member['profileImage'] == null
+                                                              ? LinearGradient(
+                                                                  colors: [
+                                                                    Theme.of(context).colorScheme.primary.withOpacity(0.8),
+                                                                    Theme.of(context).colorScheme.primary,
+                                                                  ],
+                                                                )
+                                                              : null,
+                                                        ),
+                                                        child: role == 'bot'
+                                                            ? Image.asset(
+                                                                'assets/images/mascot.png',
+                                                                fit: BoxFit.cover,
+                                                              )
+                                                            : member['profileImage'] == null
+                                                                ? Center(
+                                                                    child: Text(
+                                                                      (member['fullName'] ?? '?')[0].toUpperCase(),
+                                                                      style: const TextStyle(
+                                                                        color: Colors.white,
+                                                                        fontSize: 48,
+                                                                        fontWeight: FontWeight.bold,
+                                                                      ),
+                                                                    ),
+                                                                  )
+                                                                : null,
+                                                      ),
+                                                      const SizedBox(height: 16),
+                                                      // User name
+                                                      Column(
+                                                        children: [
+                                                          // Thai name
+                                                          Text(
+                                                            member['fullNameThai'] ?? member['fullName'] ?? 'Unknown',
+                                                            style: const TextStyle(
+                                                              fontSize: 24,
+                                                              fontWeight: FontWeight.bold,
+                                                            ),
+                                                          ),
+                                                          // English name
+                                                          if (member['fullName'] != null && 
+                                                              member['fullNameThai'] != null && 
+                                                              member['fullName'] != member['fullNameThai'])
+                                                            Text(
+                                                              member['fullName']!,
+                                                              style: TextStyle(
+                                                                fontSize: 16,
+                                                                color: Colors.grey[600],
+                                                              ),
+                                                            ),
+                                                        ],
+                                                      ),
+                                                      const SizedBox(height: 8),
+                                                      // Role badge
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(
+                                                          horizontal: 12,
+                                                          vertical: 6,
+                                                        ),
+                                                        decoration: BoxDecoration(
+                                                          color: role == 'bot'
+                                                              ? Colors.red.withOpacity(0.1)
+                                                              : role == 'owner'
+                                                                  ? Colors.purple.withOpacity(0.1)
+                                                                  : isAdmin
+                                                                      ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+                                                                      : Colors.grey.withOpacity(0.1),
+                                                          borderRadius: BorderRadius.circular(20),
+                                                        ),
+                                                        child: Text(
+                                                          role == 'bot'
+                                                              ? 'บอท'
+                                                              : role == 'owner'
+                                                                  ? 'เจ้าของ'
+                                                                  : isAdmin
+                                                                      ? 'แอดมิน'
+                                                                      : 'สมาชิก',
+                                                          style: TextStyle(
+                                                            color: role == 'bot'
+                                                                ? Colors.red
+                                                                : role == 'owner'
+                                                                    ? Colors.purple
+                                                                    : isAdmin
+                                                                        ? Theme.of(context).colorScheme.primary
+                                                                        : Colors.grey.shade700,
+                                                            fontWeight: FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 24),
+                                                      // Additional info
+                                                      if (role != 'bot') ...[
+                                                        _buildInfoItem(
+                                                          icon: Icons.email_outlined,
+                                                          label: 'Email',
+                                                          value: member['email'] ?? 'ไม่ระบุ',
+                                                        ),
+                                                        _buildInfoItem(
+                                                          icon: Icons.business_outlined,
+                                                          label: 'แผนก',
+                                                          value: member['department'] ?? 'ไม่ระบุ',
+                                                        ),
+                                                        _buildInfoItem(
+                                                          icon: Icons.work_outline,
+                                                          label: 'ตำแหน่ง',
+                                                          value: member['position'] ?? 'ไม่ระบุ',
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ),
-                                      ],
+                                      );
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 20,
+                                            backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                                            backgroundImage: role == 'bot' 
+                                                ? const AssetImage('assets/images/mascot.png')
+                                                : (member['profileImage'] != null
+                                                    ? NetworkImage(member['profileImage'])
+                                                    : null),
+                                            child: role == 'bot'
+                                                ? null
+                                                : (member['profileImage'] == null
+                                                    ? Text(
+                                                        member['fullName']?[0]?.toUpperCase() ?? '?',
+                                                        style: TextStyle(
+                                                          color: theme.colorScheme.primary,
+                                                          fontWeight: FontWeight.bold,
+                                                        ),
+                                                      )
+                                                    : null),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Row(
+                                                        children: [
+                                                          if (role == 'bot')
+                                                            Padding(
+                                                              padding: const EdgeInsets.only(right: 4),
+                                                              child: Icon(
+                                                                Icons.android,
+                                                                size: 16,
+                                                                color: Colors.grey.shade600,
+                                                              ),
+                                                            ),
+                                                          Expanded(
+                                                            child: Text(
+                                                              member['fullName'] ?? 'ไม่ระบุชื่อ',
+                                                              style: const TextStyle(
+                                                                fontWeight: FontWeight.w500,
+                                                                fontSize: 15,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: role == 'owner'
+                                                            ? Colors.purple.withOpacity(0.1)
+                                                            : isAdmin
+                                                                ? theme.colorScheme.primary.withOpacity(0.1)
+                                                                : Colors.grey.withOpacity(0.1),
+                                                        borderRadius: BorderRadius.circular(12),
+                                                      ),
+                                                      child: Text(
+                                                        role == 'owner'
+                                                            ? 'เจ้าของ'
+                                                            : isAdmin
+                                                                ? 'แอดมิน'
+                                                                : 'สมาชิก',
+                                                        style: TextStyle(
+                                                          color: role == 'owner'
+                                                              ? Colors.purple
+                                                              : isAdmin
+                                                                  ? theme.colorScheme.primary
+                                                                  : Colors.grey.shade700,
+                                                          fontSize: 12,
+                                                          fontWeight: FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  member['department'] ?? 'ไม่ระบุแผนก',
+                                                  style: theme.textTheme.bodySmall?.copyWith(
+                                                    color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   );
                                 },
@@ -681,6 +898,48 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildInfoItem({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 24,
+            color: Colors.grey[600],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

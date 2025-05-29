@@ -239,182 +239,165 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
     //   );
     // }
 
-    return RefreshIndicator(
-      onRefresh: _onRefresh,
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        controller: _scrollController,
-        padding: const EdgeInsets.all(16.0),
-        itemCount: announcements.length + (currentPage < totalPages ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index == announcements.length) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: CircularProgressIndicator(),
-              ),
-            );
-          }
-
-          final announcement = announcements[index];
-          final isNew = isNewAnnouncement(announcement['createdAt']);
-          
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            margin: const EdgeInsets.only(bottom: 16.0),
-            child: Card(
-              elevation: 4,
-              shadowColor: Colors.black.withOpacity(1),
-              color: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: isNew 
-                  ? BorderSide(color: Theme.of(context).primaryColor.withOpacity(0.5), width: 1)
-                  : BorderSide.none,
-              ),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AnnouncementDetailPage(
-                        announcement: Map<String, dynamic>.from(announcement),
-                      ),
-                    ),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 600;
+        return RefreshIndicator(
+          onRefresh: _onRefresh,
+          child: GridView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            controller: _scrollController,
+            padding: const EdgeInsets.all(16.0),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: isWide ? 2 : 1,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 1.2, // ปรับตามดีไซน์
+            ),
+            itemCount: announcements.length + (currentPage < totalPages ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index == announcements.length) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+              final announcement = announcements[index];
+              final isNew = isNewAnnouncement(announcement['createdAt']);
+              
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                child: Card(
+                  elevation: 4,
+                  shadowColor: Colors.black.withOpacity(1),
+                  color: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: isNew 
+                      ? BorderSide(color: Theme.of(context).primaryColor.withOpacity(0.5), width: 1)
+                      : BorderSide.none,
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AnnouncementDetailPage(
+                            announcement: Map<String, dynamic>.from(announcement),
+                          ),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  announcement['title'],
-                                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context).primaryColor,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      announcement['title'],
+                                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.w500,
+                                        color: Theme.of(context).primaryColor,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      formatDate(announcement['createdAt']),
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: Colors.grey[600],
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isNew)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).primaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    'ใหม่',
+                                    style: TextStyle(
+                                      color: Theme.of(context).primaryColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  formatDate(announcement['createdAt']),
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.grey[600],
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            ],
                           ),
-                          if (isNew)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).primaryColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                'ใหม่',
-                                style: TextStyle(
-                                  color: Theme.of(context).primaryColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (announcement['imageUrl'] != null && announcement['imageUrl'].toString().isNotEmpty) ...[
-                        Hero(
-                          tag: 'announcement-${announcement['_id']}',
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: AspectRatio(
-                              aspectRatio: 16 / 9,
+                          const SizedBox(height: 12),
+                          if (announcement['imageUrl'] != null && announcement['imageUrl'].toString().isNotEmpty)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
                               child: Image.network(
                                 '${ApiService.baseUrl}${announcement['imageUrl']}',
                                 fit: BoxFit.cover,
-                                loadingBuilder: (context, child, loadingProgress) {
-                                  if (loadingProgress == null) return child;
-                                  return Container(
-                                    color: Colors.grey[100],
-                                    child: Center(
-                                      child: CircularProgressIndicator(
-                                        value: loadingProgress.expectedTotalBytes != null
-                                            ? loadingProgress.cumulativeBytesLoaded /
-                                                loadingProgress.expectedTotalBytes!
-                                            : null,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: Colors.grey[100],
-                                    child: const Center(
-                                      child: Icon(Icons.error_outline, color: Colors.red),
-                                    ),
-                                  );
-                                },
+                                height: 120,
+                                width: double.infinity,
                               ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      Text(
-                        announcement['content'],
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          height: 1.5,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
+                          const SizedBox(height: 8),
                           Text(
-                            'โดย: ${_getCreatorName(Map<String, dynamic>.from(announcement))}',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w300,
-                              fontSize: 10,
+                            announcement['content'],
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              height: 1.5,
+                              color: Colors.grey[800],
                             ),
                           ),
-                          if (_getDepartment(Map<String, dynamic>.from(announcement)) != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.grey[100],
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                _getDepartment(Map<String, dynamic>.from(announcement))!.length > 16 
-                                    ? '${_getDepartment(Map<String, dynamic>.from(announcement))!.substring(0, 16)}...'
-                                    : _getDepartment(Map<String, dynamic>.from(announcement))!,
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Colors.grey[700],
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'โดย: ${_getCreatorName(Map<String, dynamic>.from(announcement))}',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w300,
+                                  fontSize: 10,
                                 ),
                               ),
-                            ),
+                              if (_getDepartment(Map<String, dynamic>.from(announcement)) != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[100],
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    _getDepartment(Map<String, dynamic>.from(announcement))!.length > 16 
+                                        ? '${_getDepartment(Map<String, dynamic>.from(announcement))!.substring(0, 16)}...'
+                                        : _getDepartment(Map<String, dynamic>.from(announcement))!,
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.grey[700],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-          );
-        },
-      ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
