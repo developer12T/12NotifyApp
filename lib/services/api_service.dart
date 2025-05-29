@@ -315,51 +315,68 @@ class ApiService {
     });
   }
 
-
-// แก้ไข sendMessage ให้ส่งแค่ครั้งเดียวผ่าน HTTP API
-Future<void> sendMessage({
-  required String roomId,
-  required String message,
-  required String employeeId,
-  bool isAdminNotification = false,
-}) async {
-  await ensureInitialized();
-  print('=== Sending Message ===');
-  print('Room ID: $roomId');
-  print('Employee ID: $employeeId');
-  print('Message: $message');
-  
-  try {
-    // ส่งผ่าน HTTP API เท่านั้น (Server จะ emit Socket event ให้เอง)
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/messages/send'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'roomId': roomId,           // ไม่ใช่ array
-        'message': message,         // ไม่ใช่ array
-        'employeeId': employeeId,
-        'isAdminNotification': isAdminNotification,
-      }),
-    );
-
-    print('Message send response status: ${response.statusCode}');
-    print('Message send response body: ${response.body}');
+  Future<void> sendMessage({
+    required String roomId,
+    required String message,
+    required String employeeId,
+    bool isAdminNotification = false,
+  }) async {
+    await ensureInitialized();
+    print('=== Sending Message ===');
+    print('Room ID: $roomId');
+    print('Employee ID: $employeeId');
+    print('Socket connected: ${socket?.connected}');
+    print('Socket ID: ${socket?.id}');
     
-    if (response.statusCode != 200) {
-      final errorData = jsonDecode(response.body);
-      throw Exception(errorData['message'] ?? 'Failed to send message');
+    try {
+      if (socket?.connected != true) {
+        print('Socket not connected, attempting to reconnect...');
+        await _initSocket();
+        // Wait for connection
+        int attempts = 0;
+        while (socket?.connected != true && attempts < 5) {
+          await Future.delayed(const Duration(seconds: 1));
+          attempts++;
+        }
+        if (socket?.connected != true) {
+          throw Exception('Failed to establish socket connection');
+        }
+      }
+
+      // Emit message directly through socket
+      socket?.emit('sendMessage', {
+        'roomId': roomId,
+        'message': message,
+        'employeeId': employeeId,
+        'timestamp': DateTime.now().toIso8601String(),
+        'isAdminNotification': isAdminNotification,
+      });
+
+      // Also send through HTTP for persistence
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/messages/send'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'roomId': [roomId],
+          'message': [message],
+          'employeeId': employeeId,
+          'isAdminNotification': isAdminNotification,
+        }),
+      );
+
+      print('Message send response: ${response.body}');
+      
+      if (response.statusCode != 200) {
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['error'] ?? 'Failed to send message');
+      }
+
+    } catch (e) {
+      print('=== Error Sending Message ===');
+      print('Error details: $e');
+      rethrow;
     }
-
-    final responseData = jsonDecode(response.body);
-    print('✅ Message sent successfully: ${responseData['message']}');
-
-    // ไม่ต้องส่ง Socket event เพิ่ม เพราะ Server จะส่งให้แล้ว
-
-  } catch (e) {
-    print('❌ Error sending message: $e');
-    rethrow;
   }
-}
 
   void onNewMessage(Function(dynamic) callback) async {
     await ensureInitialized();
@@ -528,115 +545,113 @@ Future<void> sendMessage({
     }
   }
 
-Future<Map<String, dynamic>> uploadImage(File imageFile, String roomId, String employeeId, {String? message}) async {
-  try {
-    print('=== Uploading Image ===');
-    print('Room ID: $roomId');
-    print('Employee ID: $employeeId');
-    print('File path: ${imageFile.path}');
-    print('Message: $message');
+  Future<Map<String, dynamic>> uploadImage(File imageFile, String roomId, String employeeId, {String? message}) async {
+    try {
+      print('=== Uploading Image ===');
+      print('Room ID: $roomId');
+      print('Employee ID: $employeeId');
+      print('File path: ${imageFile.path}');
+      print('Message: $message');
 
-    // Get file extension and determine mimetype
-    final fileExtension = imageFile.path.split('.').last.toLowerCase();
-    String mimeType;
-    switch (fileExtension) {
-      case 'jpg':
-      case 'jpeg':
-        mimeType = 'image/jpeg';
-        break;
-      case 'png':
-        mimeType = 'image/png';
-        break;
-      case 'gif':
-        mimeType = 'image/gif';
-        break;
-      case 'webp':
-        mimeType = 'image/webp';
-        break;
-      default:
-        throw Exception('Unsupported image format: $fileExtension');
-    }
+      // Get file extension and determine mimetype
+      final fileExtension = imageFile.path.split('.').last.toLowerCase();
+      String mimeType;
+      switch (fileExtension) {
+        case 'jpg':
+        case 'jpeg':
+          mimeType = 'image/jpeg';
+          break;
+        case 'png':
+          mimeType = 'image/png';
+          break;
+        case 'gif':
+          mimeType = 'image/gif';
+          break;
+        case 'webp':
+          mimeType = 'image/webp';
+          break;
+        default:
+          throw Exception('Unsupported image format: $fileExtension');
+      }
 
-    print('File extension: $fileExtension');
-    print('Mime type: $mimeType');
+      print('File extension: $fileExtension');
+      print('Mime type: $mimeType');
 
-    // Create multipart request
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/messages/upload'),
-    );
+      // Create multipart request
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/messages/upload'),
+      );
 
-    // Add file to request with explicit mimetype
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        'image',
-        imageFile.path,
-        contentType: MediaType.parse(mimeType),
-      ),
-    );
+      // Add file to request with explicit mimetype
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'image',
+          imageFile.path,
+          contentType: MediaType.parse(mimeType),
+        ),
+      );
 
-    // Add other fields
-    request.fields['roomId'] = roomId;
-    request.fields['employeeId'] = employeeId;
-    if (message != null && message.isNotEmpty) {
-      request.fields['message'] = message;
-    }
+      // Add other fields
+      request.fields['roomId'] = roomId;
+      request.fields['employeeId'] = employeeId;
+      if (message != null && message.isNotEmpty) {
+        request.fields['message'] = message;
+      }
 
-    print('Sending upload request...');
-    print('Request fields: ${request.fields}');
-    print('Request files: ${request.files.map((f) => '${f.filename} (${f.contentType})').join(', ')}');
+      print('Sending upload request...');
+      print('Request fields: ${request.fields}');
+      print('Request files: ${request.files.map((f) => '${f.filename} (${f.contentType})').join(', ')}');
 
-    // Send request
-    var streamedResponse = await request.send();
-    var response = await http.Response.fromStream(streamedResponse);
+      // Send request
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
 
-    print('Upload response status: ${response.statusCode}');
-    print('Upload response headers: ${response.headers}');
-    print('Upload response body: ${response.body}');
+      print('Upload response status: ${response.statusCode}');
+      print('Upload response headers: ${response.headers}');
+      print('Upload response body: ${response.body}');
 
-    if (response.statusCode == 200) {
-      try {
-        final responseData = json.decode(response.body);
-        if (responseData['statusCode'] == 200) {
-          // ❌ ลบส่วนนี้ออก - ไม่ต้อง emit socket event เพิ่ม
-          // เพราะ Server จะ emit ให้เองแล้ว
-          /*
-          if (socket?.connected == true) {
-            socket?.emit('sendMessage', {
-              'roomId': roomId,
-              'message': message ?? '',
-              'employeeId': employeeId,
-              'timestamp': DateTime.now().toIso8601String(),
-              'isImage': true,
-              'imageUrl': responseData['data']['imageUrl'],
-            });
+      if (response.statusCode == 200) {
+        try {
+          final responseData = json.decode(response.body);
+          if (responseData['statusCode'] == 200) {
+            // Emit socket event for real-time update
+            if (socket?.connected == true) {
+              print('=== Emitting socket event for uploaded image ===');
+              print('Room ID: $roomId');
+              print('Image URL: ${responseData['data']['imageUrl']}');
+              socket?.emit('sendMessage', {
+                'roomId': roomId,
+                'message': message ?? '',
+                'employeeId': employeeId,
+                'timestamp': DateTime.now().toIso8601String(),
+                'isImage': true,
+                'imageUrl': responseData['data']['imageUrl'],
+              });
+              print('=== Socket event emitted for uploaded image ===');
+            }
+            return responseData['data'];
+          } else {
+            throw Exception(responseData['message'] ?? 'Failed to upload image');
           }
-          */
-          
-          print('✅ Image uploaded successfully');
-          print('Image URL: ${responseData['data']['imageUrl']}');
-          return responseData['data'];
-        } else {
-          throw Exception(responseData['message'] ?? 'Failed to upload image');
+        } catch (e) {
+          print('Error parsing response: $e');
+          throw Exception('Invalid response format from server');
         }
-      } catch (e) {
-        print('Error parsing response: $e');
-        throw Exception('Invalid response format from server');
+      } else {
+        try {
+          final errorData = json.decode(response.body);
+          throw Exception(errorData['message'] ?? 'Failed to upload image: ${response.statusCode}');
+        } catch (e) {
+          print('Error parsing error response: $e');
+          throw Exception('Failed to upload image: ${response.statusCode} - ${response.body}');
+        }
       }
-    } else {
-      try {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to upload image: ${response.statusCode}');
-      } catch (e) {
-        print('Error parsing error response: $e');
-        throw Exception('Failed to upload image: ${response.statusCode} - ${response.body}');
-      }
+    } catch (e) {
+      print('Error uploading image: $e');
+      throw Exception('Failed to upload image: $e');
     }
-  } catch (e) {
-    print('Error uploading image: $e');
-    throw Exception('Failed to upload image: $e');
   }
-}
 
   void dispose() {
     print('Disposing socket connection');
