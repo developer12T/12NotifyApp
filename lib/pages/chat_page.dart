@@ -1027,7 +1027,7 @@ Widget _buildImageUploadingIndicator() {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, size: 20),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, true),
         ),
         actions: [
           // แสดงปุ่มตั้งค่ากลุ่มเฉพาะ owner เท่านั้น

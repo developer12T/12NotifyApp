@@ -340,14 +340,35 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
       return;
     }
 
-    final messageRoomId = message['room']?.toString();
+    // แปลง room ID และลบวงเล็บก้ามปูออก
+    final messageRoomId = message['room']?.toString().replaceAll(RegExp(r'[\[\]]'), '');
     if (messageRoomId == null) {
       print('Invalid message room ID');
       return;
     }
 
+    print('\n=== Room ID Comparison Debug ===');
+    print('Original Message Room ID: "${message['room']}"');
+    print('Cleaned Message Room ID: "$messageRoomId"');
+    print('Message Room ID length: ${messageRoomId.length}');
+    print('Message Room ID bytes: ${messageRoomId.codeUnits}');
+    
+    print('\nAvailable Rooms:');
+    for (var room in _chatRooms) {
+      print('Room ID: "${room.id}" (${room.id.runtimeType})');
+      print('Room ID length: ${room.id.length}');
+      print('Room ID bytes: ${room.id.codeUnits}');
+      print('Direct comparison: ${room.id == messageRoomId}');
+      print('---');
+    }
+
     // Find and update the room
-    final roomIndex = _chatRooms.indexWhere((room) => room.id == messageRoomId);
+    final roomIndex = _chatRooms.indexWhere((room) {
+      final isMatch = room.id == messageRoomId;
+      print('Comparing "${room.id}" with "$messageRoomId": $isMatch');
+      return isMatch;
+    });
+
     if (roomIndex == -1) {
       print('No matching room found for message room ID: $messageRoomId');
       print('Available room IDs: ${_chatRooms.map((r) => r.id).join(', ')}');
@@ -707,7 +728,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
 
       if (mounted) {
         print('Navigating to chat page...');
-        Navigator.push(
+        final result = await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ChatPage(
@@ -720,6 +741,12 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
             ),
           ),
         );
+        
+        // Refresh room data if returning from chat page
+        if (result == true) {
+          print('Refreshing room data after returning from chat...');
+          await _refreshData();
+        }
       }
     } catch (e) {
       print('❌ Error in room tap handler: $e');
