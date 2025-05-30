@@ -9,6 +9,7 @@ import 'add_members_page.dart';
 import 'group_settings_page.dart';
 import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:async';
 
 class ChatPage extends StatefulWidget {
   final String roomId;
@@ -19,8 +20,8 @@ class ChatPage extends StatefulWidget {
   final String color;
 
   const ChatPage({
-    super.key, 
-    required this.roomId, 
+    super.key,
+    required this.roomId,
     required this.roomName,
     required this.apiService,
     required this.userRole,
@@ -51,6 +52,12 @@ class _ChatPageState extends State<ChatPage> {
   // เพิ่มตัวแปรสำหรับเก็บ ID ของข้อความที่กำลังส่ง
   Set<String> _sendingMessageIds = {};
 
+  Map<String, dynamic>? _replyingToMessage;
+  final FocusNode _messageFocusNode = FocusNode();
+
+  // Add at the top of _ChatPageState
+  Timer? _longPressTimer;
+
   @override
   void initState() {
     super.initState();
@@ -65,14 +72,14 @@ class _ChatPageState extends State<ChatPage> {
     fetchMessages();
     _setupSocketListeners();
     _joinRoom();
-    
+
     _scrollController.addListener(_scrollListener);
-    
+
     // Add listener to message controller
     _messageController.addListener(() {
       setState(() {}); // Update UI when text changes
     });
-    
+
     setState(() {
       isConnected = widget.apiService.socket?.connected ?? false;
       isConnecting = !isConnected && widget.apiService.socket != null;
@@ -80,7 +87,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _scrollListener() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8) {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent * 0.8) {
       if (!isLoadingMore && currentPage < totalPages) {
         fetchMoreMessages();
       }
@@ -122,9 +130,13 @@ class _ChatPageState extends State<ChatPage> {
     try {
       // ตรวจสอบว่ามีข้อความซ้ำหรือไม่
       final existingMessage = messages.firstWhere(
-        (m) => m['message'] == messageText && 
-               m['sender']['employeeID'] == currentUserId &&
-               DateTime.parse(m['timestamp']).difference(DateTime.now()).inSeconds.abs() < 5,
+        (m) =>
+            m['message'] == messageText &&
+            m['sender']['employeeID'] == currentUserId &&
+            DateTime.parse(
+                  m['timestamp'],
+                ).difference(DateTime.now()).inSeconds.abs() <
+                5,
         orElse: () => null,
       );
 
@@ -133,18 +145,73 @@ class _ChatPageState extends State<ChatPage> {
         return;
       }
 
-      // ส่งข้อความจริง
-      await widget.apiService.sendMessage(
+      // สร้างข้อความชั่วคราวเพื่อแสดง animation
+      final tempMessage = {
+        '_id': tempMessageId,
+        'room': widget.roomId,
+        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
+        'timestamp': DateTime.now().toIso8601String(),
+        'isRead': true,
+        'isSending': true,
+        'message': messageText,
+        'isReply': _replyingToMessage != null,
+        'replyToId': _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
+        'replyToMessage': _replyingToMessage != null
+            ? {
+                'message': _replyingToMessage!['message'],
+                'sender': _replyingToMessage!['sender'],
+                'isImage': _replyingToMessage!['isImage'] ?? false,
+                'imageUrl': _replyingToMessage!['imageUrl'],
+              }
+            : null,
+      };
+
+      // เพิ่มข้อความชั่วคราวเข้าไปในรายการ
+      setState(() {
+        messages.insert(0, tempMessage);
+      });
+
+      // ส่งข้อความจริง พร้อมข้อมูล reply
+      final response = await widget.apiService.sendMessage(
         roomId: widget.roomId,
         message: messageText,
         employeeId: currentUserId!,
+        replyToId: _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
+        replyToMessage: _replyingToMessage != null
+            ? {
+                'message': _replyingToMessage!['message'],
+                'sender': _replyingToMessage!['sender'],
+                'isImage': _replyingToMessage!['isImage'] ?? false,
+                'imageUrl': _replyingToMessage!['imageUrl'],
+              }
+            : null,
       );
 
-      // ล้างข้อความในช่องพิมพ์
-      _messageController.clear();
+      // อัพเดทข้อความชั่วคราวด้วยข้อมูลจริง
+      setState(() {
+        final index = messages.indexWhere((m) => m['_id'] == tempMessageId);
+        if (index != -1) {
+          final updatedMessage = {
+            ...messages[index],
+            '_id': response['_id'] ?? tempMessageId,
+            'isSending': false,
+            'isReply': response['isReply'] ?? false,
+            'replyToId': response['replyToId'],  // Changed from replyTo to replyToId
+            'replyToMessage': response['replyToMessage'],
+          };
+          messages[index] = updatedMessage;
+        }
+      });
 
+      // ล้างข้อความในช่องพิมพ์และ reply
+      _messageController.clear();
+      _clearReply();
     } catch (e) {
       print('Error sending message: $e');
+      // ลบข้อความชั่วคราวออกถ้าเกิดข้อผิดพลาด
+      setState(() {
+        messages.removeWhere((m) => m['isSending'] == true);
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -169,12 +236,219 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  void _replyToMessage(Map<String, dynamic> message) {
+    print('Replying to message: ${message['_id']}');
+    setState(() {
+      _replyingToMessage = {
+        '_id': message['_id'],
+        'message': message['message'] ?? '',
+        'sender': message['sender'],
+        'isImage': message['isImage'] ?? false,
+        'imageUrl': message['imageUrl'],
+      };
+    });
+    // Focus the message input field
+    _messageFocusNode.requestFocus();
+  }
+
+  void _clearReply() {
+    print('Clearing reply');
+    setState(() {
+      _replyingToMessage = null;
+    });
+  }
+
+  Widget _buildReplyPreview() {
+    if (_replyingToMessage == null) return const SizedBox.shrink();
+
+    final sender = _replyingToMessage!['sender'];
+    final senderName =
+        sender is Map
+            ? (sender['fullName'] ?? 'Unknown')
+            : (sender?.toString() ?? 'Unknown');
+
+    final messageText = _replyingToMessage!['message'] ?? '';
+    final isImage = _replyingToMessage!['isImage'] == true;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(12),
+          topRight: Radius.circular(12),
+        ),
+        border: Border(
+          left: BorderSide(color: Theme.of(context).primaryColor, width: 3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.reply,
+                      size: 14,
+                      color: Theme.of(context).primaryColor,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      senderName,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).primaryColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isImage
+                      ? '📷 รูปภาพ${messageText.isNotEmpty ? ': $messageText' : ''}'
+                      : messageText,
+                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.close, size: 16, color: Colors.grey[600]),
+            onPressed: _clearReply,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyWidget(Map<String, dynamic> replyData) {
+    final sender = replyData['sender'];
+    final senderName =
+        sender is Map
+            ? (sender['fullName'] ?? 'Unknown')
+            : (sender?.toString() ?? 'Unknown');
+
+    final messageText = replyData['message'] ?? '';
+    final isImage = replyData['isImage'] == true;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border(left: BorderSide(color: Colors.grey[500]!, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            senderName,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            isImage
+                ? '📷 รูปภาพ${messageText.isNotEmpty ? ': $messageText' : ''}'
+                : messageText,
+            style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMessageContextMenu(
+    BuildContext context,
+    Map<String, dynamic> message,
+    Offset position,
+  ) {
+    final RenderBox box = context.findRenderObject() as RenderBox;
+    final Offset localPosition = box.globalToLocal(position);
+
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        localPosition.dx,
+        localPosition.dy,
+        localPosition.dx + 1,
+        localPosition.dy + 1,
+      ),
+      items: [
+        PopupMenuItem(
+          value: 'reply',
+          child: Row(
+            children: [
+              Icon(
+                Icons.reply,
+                size: 20,
+                color: Theme.of(context).primaryColor,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'ตอบกลับ',
+                style: TextStyle(
+                  color: Theme.of(context).primaryColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'copy',
+          child: Row(
+            children: [
+              Icon(Icons.copy, size: 20, color: Colors.grey[700]),
+              const SizedBox(width: 12),
+              Text(
+                'คัดลอกข้อความ',
+                style: TextStyle(
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'copy') {
+        // Copy message to clipboard
+        final messageText = message['message'] ?? '';
+        if (messageText.isNotEmpty) {
+          // สามารถใช้ Clipboard.setData() ถ้าต้องการ
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('คัดลอกข้อความแล้ว')));
+        }
+      } else if (value == 'reply') {
+        _replyToMessage(message);
+      }
+    });
+  }
+
   Future<void> _markAsRead() async {
     try {
       print('\n=== Marking Room as Read ===');
       print('Room ID: ${widget.roomId}');
       print('Current User ID: $currentUserId');
-      
+
       if (currentUserId == null) {
         print('❌ Cannot mark as read: currentUserId is null');
         return;
@@ -192,14 +466,14 @@ class _ChatPageState extends State<ChatPage> {
       // Update local message states
       setState(() {
         for (var message in messages) {
-          if (message['sender'] is Map && 
-              message['sender']['employeeID']?.toString() != currentUserId?.toString()) {
+          if (message['sender'] is Map &&
+              message['sender']['employeeID']?.toString() !=
+                  currentUserId?.toString()) {
             message['isRead'] = true;
             print('Updated message ${message['_id']} as read');
           }
         }
       });
-
     } catch (e) {
       print('❌ Error marking room as read: $e');
       print('Stack trace: ${StackTrace.current}');
@@ -221,7 +495,7 @@ class _ChatPageState extends State<ChatPage> {
 
   void _setupSocketListeners() {
     print('Setting up socket listeners...');
-    
+
     // Add listener for unreadCountUpdate
     widget.apiService.socket?.on('unreadCountUpdate', (data) {
       print('Received unreadCountUpdate event: $data');
@@ -229,17 +503,18 @@ class _ChatPageState extends State<ChatPage> {
         final updateRoomId = data['roomId']?.toString();
         final updateUserId = data['userId']?.toString();
         final count = data['count'];
-        
+
         if (updateRoomId == widget.roomId) {
           print('Updating unread count for room: $updateRoomId');
           print('User: $updateUserId, Count: $count');
-          
+
           // Update local state if needed
           setState(() {
             // Update messages if needed
             for (var message in messages) {
-              if (message['sender'] is Map && 
-                  message['sender']['employeeID']?.toString() != updateUserId?.toString()) {
+              if (message['sender'] is Map &&
+                  message['sender']['employeeID']?.toString() !=
+                      updateUserId?.toString()) {
                 message['isRead'] = true;
               }
             }
@@ -299,7 +574,7 @@ class _ChatPageState extends State<ChatPage> {
 
     widget.apiService.onNewMessage((dynamic data) {
       print('New message data: $data');
-      
+
       if (!mounted) {
         print('Widget is not mounted, skipping message update');
         return;
@@ -325,54 +600,162 @@ class _ChatPageState extends State<ChatPage> {
         final messageId = messageData['_id']?.toString();
         final messageText = messageData['message']?.toString() ?? '';
         final senderId = messageData['sender']?['employeeID']?.toString();
-        final messageTimestamp = messageData['timestamp']?.toString() ?? DateTime.now().toIso8601String();
+        final messageTimestamp =
+            messageData['timestamp']?.toString() ??
+            DateTime.now().toIso8601String();
 
         // ตรวจสอบข้อความซ้ำจาก server
-        final existingIndex = messages.indexWhere((m) => m['_id'] == messageId);
-        if (existingIndex != -1) {
-          print('ℹ️ Message already exists, skipping...');
-          return;
-        }
+     // ตรวจสอบข้อความซ้ำจาก server หรือ temporary message
+final existingIndex = messages.indexWhere((m) {
+  // ตรวจสอบ ID เหมือนเดิม
+  if (m['_id'] == messageId) return true;
+  
+  // ตรวจสอบ temporary message
+  if (m['isSending'] == true && 
+      m['sender']['employeeID'] == senderId) {
+    
+    // สำหรับรูปภาพ - เปรียบเทียบว่าเป็นรูปภาพทั้งคู่
+    if (messageData['isImage'] == true && m['isImage'] == true) {
+      print('Found temporary image message to replace');
+      return true;
+    }
+    
+    // สำหรับข้อความ - เปรียบเทียบเนื้อหา
+    if (messageData['isImage'] != true && 
+        m['isImage'] != true && 
+        m['message'] == messageText) {
+      print('Found temporary text message to replace');
+      return true;
+    }
+  }
+  
+  return false;
+});
 
+if (existingIndex != -1) {
+  // ถ้าเป็น temporary message ให้แทนที่
+  if (messages[existingIndex]['isSending'] == true) {
+    print('ℹ️ Replacing temporary message with server response');
+    print('Message type: ${messageData['isImage'] == true ? 'Image' : 'Text'}');
+    
+    setState(() {
+      messages[existingIndex] = {
+        '_id': messageId,
+        'room': messageData['room'],
+        'message': messageText,
+        'sender': messageData['sender'] is Map
+            ? Map<String, dynamic>.from(messageData['sender'])
+            : {
+                'fullName': messageData['sender']?.toString() ?? 'Unknown',
+                'employeeID': senderId ?? 'Unknown',
+              },
+        'timestamp': messageTimestamp,
+        'isRead': messageData['isRead'] ?? false,
+        'isImage': messageData['isImage'] ?? (messageData['imageUrl'] != null),
+        'imageUrl': messageData['imageUrl'],
+        'status': 'sent',
+        'isReply': messageData['isReply'] ?? false,
+        'replyTo': messageData['replyTo'],
+        'replyToMessage': messageData['replyToMessage'],
+      };
+    });
+    
+    // เลื่อนไปที่ข้อความที่อัพเดทแล้ว
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+    return;
+  } else {
+    print('ℹ️ Message already exists, skipping...');
+    return;
+  }
+}
+
+// เพิ่มข้อความใหม่จาก server (เฉพาะที่ไม่ใช่ temporary message)
+final newMessage = {
+  '_id': messageId,
+  'room': messageData['room'],
+  'message': messageText,
+  'sender': messageData['sender'] is Map
+      ? Map<String, dynamic>.from(messageData['sender'])
+      : {
+          'fullName': messageData['sender']?.toString() ?? 'Unknown',
+          'employeeID': senderId ?? 'Unknown',
+        },
+  'timestamp': messageTimestamp,
+  'isRead': messageData['isRead'] ?? false,
+  'isImage': messageData['isImage'] ?? (messageData['imageUrl'] != null),
+  'imageUrl': messageData['imageUrl'],
+  'status': 'sent',
+  'isReply': messageData['isReply'] ?? false,
+  'replyTo': messageData['replyTo'],
+  'replyToMessage': messageData['replyToMessage'],
+};
+
+setState(() {
+  // เพิ่มข้อความใหม่ที่ตำแหน่งแรกเสมอ
+  messages.insert(0, newMessage);
+
+  // เลื่อนไปที่ข้อความใหม่ทันที
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  });
+});
         // เพิ่มข้อความใหม่จาก server
-        final newMessage = {
-          '_id': messageId,
-          'room': messageData['room'],
-          'message': messageText,
-          'sender': messageData['sender'] is Map 
-              ? Map<String, dynamic>.from(messageData['sender'])
-              : {
-                  'fullName': messageData['sender']?.toString() ?? 'Unknown',
-                  'employeeID': senderId ?? 'Unknown',
-                },
-          'timestamp': messageTimestamp,
-          'isRead': messageData['isRead'] ?? false,
-          'isImage': messageData['isImage'] ?? (messageData['imageUrl'] != null),
-          'imageUrl': messageData['imageUrl'],
-          'status': 'sent',
-        };
+        // final newMessage = {
+        //   '_id': messageId,
+        //   'room': messageData['room'],
+        //   'message': messageText,
+        //   'sender':
+        //       messageData['sender'] is Map
+        //           ? Map<String, dynamic>.from(messageData['sender'])
+        //           : {
+        //             'fullName': messageData['sender']?.toString() ?? 'Unknown',
+        //             'employeeID': senderId ?? 'Unknown',
+        //           },
+        //   'timestamp': messageTimestamp,
+        //   'isRead': messageData['isRead'] ?? false,
+        //   'isImage':
+        //       messageData['isImage'] ?? (messageData['imageUrl'] != null),
+        //   'imageUrl': messageData['imageUrl'],
+        //   'status': 'sent',
+        //   'isReply': messageData['isReply'] ?? false,
+        //   'replyTo': messageData['replyTo'],
+        //   'replyToMessage': messageData['replyToMessage'],
+        // };
 
-        setState(() {
-          // เพิ่มข้อความใหม่ที่ตำแหน่งแรกเสมอ
-          messages.insert(0, newMessage);
+        // setState(() {
+        //   // เพิ่มข้อความใหม่ที่ตำแหน่งแรกเสมอ
+        //   messages.insert(0, newMessage);
 
-          // เลื่อนไปที่ข้อความใหม่ทันที
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_scrollController.hasClients) {
-              _scrollController.animateTo(
-                0,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOutCubic,
-              );
-            }
-          });
-        });
+        //   // เลื่อนไปที่ข้อความใหม่ทันที
+        //   WidgetsBinding.instance.addPostFrameCallback((_) {
+        //     if (_scrollController.hasClients) {
+        //       _scrollController.animateTo(
+        //         0,
+        //         duration: const Duration(milliseconds: 300),
+        //         curve: Curves.easeOutCubic,
+        //       );
+        //     }
+        //   });
+        // });
 
         // Mark as read if needed
         if (senderId != currentUserId?.toString()) {
           _markAsRead();
         }
-
       } catch (e) {
         print('❌ Error processing new message: $e');
         print('Stack trace: ${StackTrace.current}');
@@ -390,17 +773,21 @@ class _ChatPageState extends State<ChatPage> {
     try {
       final nextPage = currentPage + 1;
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/api/messages/room/${widget.roomId}?page=$nextPage'),
+        Uri.parse(
+          '${ApiService.baseUrl}/api/messages/room/${widget.roomId}?page=$nextPage',
+        ),
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final newMessages = data['messages'].map((msg) {
-          if (msg['message'] != null && msg['message'].toString().trim().isEmpty) {
-            msg.remove('message');
-          }
-          return msg;
-        }).toList();
+        final newMessages =
+            data['messages'].map((msg) {
+              if (msg['message'] != null &&
+                  msg['message'].toString().trim().isEmpty) {
+                msg.remove('message');
+              }
+              return msg;
+            }).toList();
 
         // เพิ่มข้อความใหม่ต่อท้ายรายการเดิม
         setState(() {
@@ -416,7 +803,6 @@ class _ChatPageState extends State<ChatPage> {
           final bTime = DateTime.parse(b['timestamp']);
           return bTime.compareTo(aTime); // เรียงจากใหม่ไปเก่า
         });
-
       } else {
         setState(() {
           isLoadingMore = false;
@@ -449,19 +835,23 @@ class _ChatPageState extends State<ChatPage> {
       });
 
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/api/messages/room/${widget.roomId}?page=1'),
+        Uri.parse(
+          '${ApiService.baseUrl}/api/messages/room/${widget.roomId}?page=1',
+        ),
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         print('Fetched messages data: $data'); // Debug log
-        
-        final fetchedMessages = data['messages'].map((msg) {
-          if (msg['message'] != null && msg['message'].toString().trim().isEmpty) {
-            msg.remove('message');
-          }
-          return msg;
-        }).toList();
+
+        final fetchedMessages =
+            data['messages'].map((msg) {
+              if (msg['message'] != null &&
+                  msg['message'].toString().trim().isEmpty) {
+                msg.remove('message');
+              }
+              return msg;
+            }).toList();
 
         // เรียงลำดับข้อความตาม timestamp
         fetchedMessages.sort((a, b) {
@@ -487,7 +877,6 @@ class _ChatPageState extends State<ChatPage> {
             );
           }
         });
-
       } else {
         print('Error fetching messages: ${response.statusCode}');
         setState(() {
@@ -561,6 +950,8 @@ class _ChatPageState extends State<ChatPage> {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _messageController.dispose();
+    _messageFocusNode.dispose();
+    _longPressTimer?.cancel();
     super.dispose();
   }
 
@@ -582,7 +973,9 @@ class _ChatPageState extends State<ChatPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('กรุณาเลือกรูปภาพที่มีนามสกุล .jpg, .jpeg, .png, .gif หรือ .webp เท่านั้น'),
+                content: Text(
+                  'กรุณาเลือกรูปภาพที่มีนามสกุล .jpg, .jpeg, .png, .gif หรือ .webp เท่านั้น',
+                ),
                 backgroundColor: Colors.red,
                 duration: Duration(seconds: 3),
               ),
@@ -595,12 +988,14 @@ class _ChatPageState extends State<ChatPage> {
         final file = File(image.path);
         final bytes = await file.readAsBytes();
         final mimeType = _getMimeType(bytes);
-        
+
         if (!mimeType.startsWith('image/')) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('ไฟล์ที่เลือกไม่ใช่รูปภาพ กรุณาเลือกไฟล์รูปภาพเท่านั้น'),
+                content: Text(
+                  'ไฟล์ที่เลือกไม่ใช่รูปภาพ กรุณาเลือกไฟล์รูปภาพเท่านั้น',
+                ),
                 backgroundColor: Colors.red,
                 duration: Duration(seconds: 3),
               ),
@@ -656,23 +1051,29 @@ class _ChatPageState extends State<ChatPage> {
 
   String _getMimeType(List<int> bytes) {
     if (bytes.length < 2) return 'application/octet-stream';
-    
+
     // Check for JPEG
     if (bytes[0] == 0xFF && bytes[1] == 0xD8) return 'image/jpeg';
-    
+
     // Check for PNG
     if (bytes[0] == 0x89 && bytes[1] == 0x50) return 'image/png';
-    
+
     // Check for GIF
     if (bytes[0] == 0x47 && bytes[1] == 0x49) return 'image/gif';
-    
+
     // Check for WebP
     if (bytes.length >= 12 &&
-        bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
-        bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) {
+        bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
       return 'image/webp';
     }
-    
+
     return 'application/octet-stream';
   }
 
@@ -687,7 +1088,9 @@ class _ChatPageState extends State<ChatPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('กรุณาเลือกรูปภาพที่มีนามสกุล .jpg, .jpeg, .png, .gif หรือ .webp เท่านั้น'),
+            content: Text(
+              'กรุณาเลือกรูปภาพที่มีนามสกุล .jpg, .jpeg, .png, .gif หรือ .webp เท่านั้น',
+            ),
             backgroundColor: Colors.red,
             duration: Duration(seconds: 3),
           ),
@@ -699,12 +1102,14 @@ class _ChatPageState extends State<ChatPage> {
     // ตรวจสอบ mimetype อีกครั้ง
     final bytes = await _selectedImage!.readAsBytes();
     final mimeType = _getMimeType(bytes);
-    
+
     if (!mimeType.startsWith('image/')) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('ไฟล์ที่เลือกไม่ใช่รูปภาพ กรุณาเลือกไฟล์รูปภาพเท่านั้น'),
+            content: Text(
+              'ไฟล์ที่เลือกไม่ใช่รูปภาพ กรุณาเลือกไฟล์รูปภาพเท่านั้น',
+            ),
             backgroundColor: Colors.red,
             duration: Duration(seconds: 3),
           ),
@@ -724,6 +1129,7 @@ class _ChatPageState extends State<ChatPage> {
       print('Image path: ${_selectedImage!.path}');
       print('File extension: $fileExtension');
       print('MimeType: $mimeType');
+      print('Reply to: ${_replyingToMessage?['_id']}');
 
       // สร้างข้อความชั่วคราวเพื่อแสดง animation
       final tempMessage = {
@@ -735,6 +1141,16 @@ class _ChatPageState extends State<ChatPage> {
         'isSending': true,
         'isImage': true,
         'imageUrl': null,
+        'isReply': _replyingToMessage != null,
+        'replyToId': _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
+        'replyToMessage': _replyingToMessage != null
+            ? {
+                'message': _replyingToMessage!['message'],
+                'sender': _replyingToMessage!['sender'],
+                'isImage': _replyingToMessage!['isImage'] ?? false,
+                'imageUrl': _replyingToMessage!['imageUrl'],
+              }
+            : null,
       };
       if (_messageController.text.trim().isNotEmpty) {
         tempMessage['message'] = _messageController.text.trim();
@@ -756,11 +1172,21 @@ class _ChatPageState extends State<ChatPage> {
         }
       });
 
-      // อัพโหลดรูปภาพ
+      // อัพโหลดรูปภาพ พร้อมข้อมูล reply
       final response = await widget.apiService.uploadImage(
         _selectedImage!,
         widget.roomId,
         currentUserId!,
+        message: _messageController.text.trim().isNotEmpty ? _messageController.text.trim() : null,
+        replyToId: _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
+        replyToMessage: _replyingToMessage != null
+            ? {
+                'message': _replyingToMessage!['message'],
+                'sender': _replyingToMessage!['sender'],
+                'isImage': _replyingToMessage!['isImage'] ?? false,
+                'imageUrl': _replyingToMessage!['imageUrl'],
+              }
+            : null,
       );
 
       print('Image upload response: $response');
@@ -783,6 +1209,9 @@ class _ChatPageState extends State<ChatPage> {
             'isSending': false,
             'isImage': true,
             'imageUrl': response['imageUrl'],
+            'isReply': response['isReply'] ?? false,
+            'replyToId': response['replyToId'],  // Changed from replyTo to replyToId
+            'replyToMessage': response['replyToMessage'],
           };
           // อัปเดต message เฉพาะถ้ามีใน response
           if (response['message'] != null && response['message'].toString().trim().isNotEmpty) {
@@ -794,15 +1223,16 @@ class _ChatPageState extends State<ChatPage> {
         }
       });
 
-      // รีเซ็ตรูปที่เลือก
+      // รีเซ็ตรูปที่เลือกและข้อความ reply
       setState(() {
         _selectedImage = null;
+        _clearReply();
       });
-
+      _messageController.clear();
     } catch (e) {
       print('Error sending image: $e');
       String errorMessage = 'ไม่สามารถส่งรูปภาพได้';
-      
+
       if (e.toString().contains('Only image files are allowed')) {
         errorMessage = 'กรุณาเลือกรูปภาพที่มีนามสกุล .jpg, .jpeg, .png, .gif หรือ .webp เท่านั้น';
       } else if (e.toString().contains('FormatException')) {
@@ -813,7 +1243,7 @@ class _ChatPageState extends State<ChatPage> {
       setState(() {
         messages.removeWhere((m) => m['isSending'] == true);
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -889,13 +1319,13 @@ class _ChatPageState extends State<ChatPage> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final roomColor = Color(int.parse(widget.color.replaceAll('#', '0xFF')));
-    
+
     // ตรวจสอบว่าเป็น desktop หรือไม่
     final isDesktop = MediaQuery.of(context).size.width > 600;
-    
+
     // ตรวจสอบสิทธิ์การเป็น owner
     final bool isOwner = widget.userRole.toLowerCase() == 'owner';
-    
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -912,27 +1342,31 @@ class _ChatPageState extends State<ChatPage> {
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
                 shape: BoxShape.circle,
-                image: widget.imageUrl != null
-                    ? DecorationImage(
-                        image: NetworkImage('${ApiService.baseUrl}${widget.imageUrl}'),
-                        fit: BoxFit.cover,
-                        onError: (exception, stackTrace) {
-                          print('Error loading group image: $exception');
-                        },
-                      )
-                    : null,
+                image:
+                    widget.imageUrl != null
+                        ? DecorationImage(
+                          image: NetworkImage(
+                            '${ApiService.baseUrl}${widget.imageUrl}',
+                          ),
+                          fit: BoxFit.cover,
+                          onError: (exception, stackTrace) {
+                            print('Error loading group image: $exception');
+                          },
+                        )
+                        : null,
               ),
-              child: widget.imageUrl == null
-                  ? Center(
-                      child: Text(
-                        widget.roomName.characters.first.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: isDesktop ? 24 : 18,
-                          fontWeight: FontWeight.bold,
+              child:
+                  widget.imageUrl == null
+                      ? Center(
+                        child: Text(
+                          widget.roomName.characters.first.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: isDesktop ? 24 : 18,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                    )
-                  : null,
+                      )
+                      : null,
             ),
             SizedBox(width: isDesktop ? 16 : 12),
             Expanded(
@@ -953,19 +1387,20 @@ class _ChatPageState extends State<ChatPage> {
                       vertical: isDesktop ? 6 : 4,
                     ),
                     decoration: BoxDecoration(
-                      color: isConnected 
-                          ? Colors.green 
-                          : isConnecting 
-                              ? Colors.orange 
+                      color:
+                          isConnected
+                              ? Colors.green
+                              : isConnecting
+                              ? Colors.orange
                               : Colors.red,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      isConnected 
-                          ? 'ออนไลน์' 
-                          : isConnecting 
-                              ? 'กำลังเชื่อมต่อ...' 
-                              : 'ออฟไลน์',
+                      isConnected
+                          ? 'ออนไลน์'
+                          : isConnecting
+                          ? 'กำลังเชื่อมต่อ...'
+                          : 'ออฟไลน์',
                       style: TextStyle(
                         fontSize: isDesktop ? 14 : 12,
                         color: Colors.white,
@@ -989,10 +1424,7 @@ class _ChatPageState extends State<ChatPage> {
               child: IconButton(
                 icon: Container(
                   padding: const EdgeInsets.all(8),
-                  child: const Icon(
-                    Icons.menu,
-                    size: 26,
-                  ),
+                  child: const Icon(Icons.menu, size: 26),
                 ),
                 tooltip: 'ตั้งค่ากลุ่ม',
                 onPressed: () async {
@@ -1012,11 +1444,12 @@ class _ChatPageState extends State<ChatPage> {
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => GroupSettingsPage(
-                        roomId: widget.roomId,
-                        roomName: widget.roomName,
-                        userRole: widget.userRole, // ส่ง role ไปด้วย
-                      ),
+                      builder:
+                          (context) => GroupSettingsPage(
+                            roomId: widget.roomId,
+                            roomName: widget.roomName,
+                            userRole: widget.userRole, // ส่ง role ไปด้วย
+                          ),
                     ),
                   );
                   if (result == true) {
@@ -1030,256 +1463,403 @@ class _ChatPageState extends State<ChatPage> {
       body: Column(
         children: [
           Expanded(
-            child: isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: colorScheme.primary,
-                    ),
-                  )
-                : Stack(
-                    children: [
-                      RefreshIndicator(
+            child:
+                isLoading
+                    ? Center(
+                      child: CircularProgressIndicator(
                         color: colorScheme.primary,
-                        onRefresh: () async {
-                          setState(() {
-                            currentPage = 1;
-                            messages = [];
-                          });
-                          await fetchMessages();
-                        },
-                        child: ListView.builder(
-                          controller: _scrollController,
-                          reverse: true,
-                          // ปรับ padding สำหรับ desktop
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isDesktop ? 24 : 16,
-                            vertical: isDesktop ? 12 : 8,
-                          ),
-                          itemCount: messages.length + (isLoadingMore ? 1 : 0),
-                          itemBuilder: (context, index) {
-                            if (index == messages.length) {
-                              return Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: CircularProgressIndicator(
-                                    color: colorScheme.primary,
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              );
-                            }
-                            
-                            // Convert message to Map<String, dynamic>
-                            final messageData = messages[index];
-                            final Map<String, dynamic> message = Map<String, dynamic>.from(messageData);
-                            
-                            print('Message data: $message'); // Debug log for full message
-                            
-                            // Get employeeID from sender object
-                            final Map<String, dynamic> sender = Map<String, dynamic>.from(message['sender']);
-                            final messageSenderId = sender['employeeID'];
-                            final isCurrentUser = currentUserId != null && messageSenderId != null && messageSenderId == currentUserId;
-                            
-                            print('Message sender employeeID: $messageSenderId, currentUserId: $currentUserId, isCurrentUser: $isCurrentUser'); // Debug log
-                            
-                            String senderName = 'Unknown';
-                            String senderInitial = '?';
-                            if (sender['fullName'] != null) {
-                              senderName = sender['fullName'];
-                              senderInitial = senderName.isNotEmpty ? senderName[0].toUpperCase() : '?';
-                            }
-
-                            Widget? dateSeparator;
-                            if (index == messages.length - 1 || 
-                                (index < messages.length - 1 && !isSameDay(message['timestamp'], messages[index + 1]['timestamp']))) {
-                              dateSeparator = Container(
-                                margin: const EdgeInsets.symmetric(vertical: 16),
-                                child: Center(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[200],
-                                      borderRadius: BorderRadius.circular(20),
+                      ),
+                    )
+                    : Stack(
+                      children: [
+                        RefreshIndicator(
+                          color: colorScheme.primary,
+                          onRefresh: () async {
+                            setState(() {
+                              currentPage = 1;
+                              messages = [];
+                            });
+                            await fetchMessages();
+                          },
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            reverse: true,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isDesktop ? 24 : 16,
+                              vertical: isDesktop ? 12 : 8,
+                            ),
+                            itemCount:
+                                messages.length + (isLoadingMore ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              if (index == messages.length) {
+                                return Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: CircularProgressIndicator(
+                                      color: colorScheme.primary,
+                                      strokeWidth: 2,
                                     ),
-                                    child: Text(
-                                      formatDateOnly(message['timestamp']),
-                                      style: TextStyle(
-                                        color: Colors.grey[700],
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
+                                  ),
+                                );
+                              }
+
+                              final messageData = messages[index];
+                              final Map<String, dynamic> message =
+                                  Map<String, dynamic>.from(messageData);
+                              final Map<String, dynamic> sender =
+                                  Map<String, dynamic>.from(message['sender']);
+                              final messageSenderId = sender['employeeID'];
+                              final isCurrentUser =
+                                  currentUserId != null &&
+                                  messageSenderId != null &&
+                                  messageSenderId == currentUserId;
+
+                              String senderName = 'Unknown';
+                              String senderInitial = '?';
+                              if (sender['fullName'] != null) {
+                                senderName = sender['fullName'];
+                                senderInitial =
+                                    senderName.isNotEmpty
+                                        ? senderName[0].toUpperCase()
+                                        : '?';
+                              }
+
+                              Widget? dateSeparator;
+                              if (index == messages.length - 1 ||
+                                  (index < messages.length - 1 &&
+                                      !isSameDay(
+                                        message['timestamp'],
+                                        messages[index + 1]['timestamp'],
+                                      ))) {
+                                dateSeparator = Container(
+                                  margin: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  child: Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[200],
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        formatDateOnly(message['timestamp']),
+                                        style: TextStyle(
+                                          color: Colors.grey[700],
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              );
-                            }
-                            return AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 300),
-                              child: Column(
-                                key: ValueKey(message['_id']),
-                                children: [
-                                  if (dateSeparator != null) dateSeparator,
-                                  Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      vertical: isDesktop ? 6 : 4,
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisAlignment: isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-                                      children: [
-                                        if (!isCurrentUser) ...[
-                                          GestureDetector(
-                                            onTap: sender['role'] == 'bot' ? null : () => _showProfileBottomSheet(sender),
-                                            child: Container(
-                                              width: isDesktop ? 48 : 42,
-                                              height: isDesktop ? 48 : 42,
-                                              margin: EdgeInsets.only(right: isDesktop ? 12 : 8),
-                                              decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: sender['role'] == 'bot' 
-                                                    ? Colors.white.withOpacity(0.1)
-                                                    : null,
-                                                image: sender['role'] != 'bot' && sender['imgUrl'] != null
-                                                    ? DecorationImage(
-                                                        image: NetworkImage(sender['imgUrl']),
-                                                        fit: BoxFit.cover,
-                                                        onError: (exception, stackTrace) {
-                                                          print('Error loading image: $exception');
-                                                        },
-                                                      )
-                                                    : null,
-                                                gradient: sender['role'] != 'bot' && sender['imgUrl'] == null
-                                                    ? LinearGradient(
-                                                        colors: [
-                                                          colorScheme.primary.withOpacity(0.8),
-                                                          colorScheme.primary,
-                                                        ],
-                                                      )
-                                                    : null,
-                                              ),
-                                              child: sender['role'] == 'bot'
-                                                  ? Image.asset(
-                                                      'assets/images/mascot.png',
-                                                      fit: BoxFit.cover,
-                                                    )
-                                                  : sender['imgUrl'] == null
-                                                      ? Center(
+                                );
+                              }
+
+                              return AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 300),
+                                child: Column(
+                                  key: ValueKey(message['_id']),
+                                  children: [
+                                    if (dateSeparator != null) dateSeparator,
+                                    Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: isDesktop ? 6 : 4,
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisAlignment:
+                                            isCurrentUser
+                                                ? MainAxisAlignment.end
+                                                : MainAxisAlignment.start,
+                                        children: [
+                                          if (!isCurrentUser) ...[
+                                            GestureDetector(
+                                              onTap:
+                                                  sender['role'] == 'bot'
+                                                      ? null
+                                                      : () =>
+                                                          _showProfileBottomSheet(
+                                                            sender,
+                                                          ),
+                                              child: Container(
+                                                width: isDesktop ? 48 : 42,
+                                                height: isDesktop ? 48 : 42,
+                                                margin: EdgeInsets.only(
+                                                  right: isDesktop ? 12 : 8,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color:
+                                                      sender['role'] == 'bot'
+                                                          ? Colors.white
+                                                              .withOpacity(0.1)
+                                                          : null,
+                                                  image:
+                                                      sender['role'] != 'bot' &&
+                                                              sender['imgUrl'] !=
+                                                                  null
+                                                          ? DecorationImage(
+                                                            image: NetworkImage(
+                                                              sender['imgUrl'],
+                                                            ),
+                                                            fit: BoxFit.cover,
+                                                            onError: (
+                                                              exception,
+                                                              stackTrace,
+                                                            ) {
+                                                              print(
+                                                                'Error loading image: $exception',
+                                                              );
+                                                            },
+                                                          )
+                                                          : null,
+                                                  gradient:
+                                                      sender['role'] != 'bot' &&
+                                                              sender['imgUrl'] ==
+                                                                  null
+                                                          ? LinearGradient(
+                                                            colors: [
+                                                              colorScheme
+                                                                  .primary
+                                                                  .withOpacity(
+                                                                    0.8,
+                                                                  ),
+                                                              colorScheme
+                                                                  .primary,
+                                                            ],
+                                                          )
+                                                          : null,
+                                                ),
+                                                child:
+                                                    sender['role'] == 'bot'
+                                                        ? Image.asset(
+                                                          'assets/images/mascot.png',
+                                                          fit: BoxFit.cover,
+                                                        )
+                                                        : sender['imgUrl'] ==
+                                                            null
+                                                        ? Center(
                                                           child: Text(
                                                             senderInitial,
-                                                            style: const TextStyle(
-                                                              color: Colors.white,
-                                                              fontWeight: FontWeight.bold,
-                                                            ),
+                                                            style:
+                                                                const TextStyle(
+                                                                  color:
+                                                                      Colors
+                                                                          .white,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold,
+                                                                ),
                                                           ),
                                                         )
-                                                      : null,
+                                                        : null,
+                                              ),
+                                            ),
+                                          ],
+                                          Flexible(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  isCurrentUser
+                                                      ? CrossAxisAlignment.end
+                                                      : CrossAxisAlignment
+                                                          .start,
+                                              children: [
+                                                if (!isCurrentUser)
+                                                  Padding(
+                                                    padding: EdgeInsets.only(
+                                                      left: isDesktop ? 16 : 12,
+                                                      bottom: isDesktop ? 6 : 4,
+                                                    ),
+                                                    child: Text(
+                                                      senderName,
+                                                      style: TextStyle(
+                                                        fontSize:
+                                                            isDesktop ? 15 : 13,
+                                                        color:
+                                                            sender['role'] ==
+                                                                    'bot'
+                                                                ? Colors.red
+                                                                : Colors
+                                                                    .grey[700],
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                Stack(
+                                                  children: [
+                                                    AnimatedContainer(
+                                                      duration: const Duration(
+                                                        milliseconds: 300,
+                                                      ),
+                                                      margin: EdgeInsets.only(
+                                                        left:
+                                                            isCurrentUser
+                                                                ? (isDesktop
+                                                                    ? 80
+                                                                    : 64)
+                                                                : 0,
+                                                        right:
+                                                            isCurrentUser
+                                                                ? 0
+                                                                : (isDesktop
+                                                                    ? 80
+                                                                    : 64),
+                                                      ),
+                                                      padding:
+                                                          EdgeInsets.symmetric(
+                                                            horizontal:
+                                                                isDesktop
+                                                                    ? 20
+                                                                    : 16,
+                                                            vertical:
+                                                                isDesktop
+                                                                    ? 16
+                                                                    : 12,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color:
+                                                            message['isSending'] ==
+                                                                    true
+                                                                ? Colors
+                                                                    .grey[200]
+                                                                : isCurrentUser
+                                                                ? const Color(
+                                                                  0xFFC3F69D,
+                                                                )
+                                                                : Colors.white,
+                                                        borderRadius: BorderRadius.only(
+                                                          topLeft:
+                                                              const Radius.circular(
+                                                                20,
+                                                              ),
+                                                          topRight:
+                                                              const Radius.circular(
+                                                                20,
+                                                              ),
+                                                          bottomLeft:
+                                                              Radius.circular(
+                                                                isCurrentUser
+                                                                    ? 20
+                                                                    : 4,
+                                                              ),
+                                                          bottomRight:
+                                                              Radius.circular(
+                                                                isCurrentUser
+                                                                    ? 4
+                                                                    : 20,
+                                                              ),
+                                                        ),
+                                                        boxShadow: [
+                                                          BoxShadow(
+                                                            color: Colors.black
+                                                                .withOpacity(
+                                                                  0.05,
+                                                                ),
+                                                            blurRadius: 8,
+                                                            offset:
+                                                                const Offset(
+                                                                  0,
+                                                                  2,
+                                                                ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          _buildMessageContent(
+                                                            message,
+                                                            isCurrentUser,
+                                                          ),
+                                                          SizedBox(height: 6),
+                                                          Row(
+                                                            mainAxisAlignment:
+                                                                MainAxisAlignment
+                                                                    .spaceBetween,
+                                                            children: [
+                                                              Text(
+                                                                formatTime(
+                                                                  message['timestamp'],
+                                                                ),
+                                                                style: TextStyle(
+                                                                  fontSize: 12,
+                                                                  color:
+                                                                      Colors
+                                                                          .grey[700],
+                                                                ),
+                                                              ),
+                                                              Material(
+                                                                color:
+                                                                    Colors
+                                                                        .transparent,
+                                                                child: InkWell(
+                                                                  onTap:
+                                                                      () => _replyToMessage(
+                                                                        message,
+                                                                      ),
+                                                                  borderRadius:
+                                                                      BorderRadius.circular(
+                                                                        12,
+                                                                      ),
+                                                                  child: Container(
+                                                                    padding:
+                                                                        const EdgeInsets.all(
+                                                                          6,
+                                                                        ),
+                                                                    decoration: BoxDecoration(
+                                                                      color: Theme.of(
+                                                                        context,
+                                                                      ).primaryColor.withOpacity(
+                                                                        0.1,
+                                                                      ),
+                                                                      borderRadius:
+                                                                          BorderRadius.circular(
+                                                                            12,
+                                                                          ),
+                                                                    ),
+                                                                    child: Icon(
+                                                                      Icons
+                                                                          .reply,
+                                                                      size: 18,
+                                                                      color:
+                                                                          Theme.of(
+                                                                            context,
+                                                                          ).primaryColor,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
-                                        Flexible(
-                                          child: Column(
-                                            crossAxisAlignment: isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                            children: [
-                                              if (!isCurrentUser)
-                                                Padding(
-                                                  padding: EdgeInsets.only(
-                                                    left: isDesktop ? 16 : 12,
-                                                    bottom: isDesktop ? 6 : 4,
-                                                  ),
-                                                  child: Text(
-                                                    senderName,
-                                                    style: TextStyle(
-                                                      fontSize: isDesktop ? 15 : 13,
-                                                      color: sender['role'] == 'bot' 
-                                                          ? Colors.red 
-                                                          : Colors.grey[700],
-                                                      fontWeight: FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ),
-                                              AnimatedContainer(
-                                                duration: const Duration(milliseconds: 300),
-                                                margin: EdgeInsets.only(
-                                                  left: isCurrentUser ? (isDesktop ? 80 : 64) : 0,
-                                                  right: isCurrentUser ? 0 : (isDesktop ? 80 : 64),
-                                                ),
-                                                padding: EdgeInsets.symmetric(
-                                                  horizontal: isDesktop ? 20 : 16,
-                                                  vertical: isDesktop ? 16 : 12,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: message['isSending'] == true
-                                                      ? Colors.grey[200]
-                                                      : isCurrentUser 
-                                                          ? const Color(0xFFC3F69D)
-                                                          : Colors.white,
-                                                  borderRadius: BorderRadius.only(
-                                                    topLeft: const Radius.circular(20),
-                                                    topRight: const Radius.circular(20),
-                                                    bottomLeft: Radius.circular(isCurrentUser ? 20 : 4),
-                                                    bottomRight: Radius.circular(isCurrentUser ? 4 : 20),
-                                                  ),
-                                                  boxShadow: [
-                                                    BoxShadow(
-                                                      color: Colors.black.withOpacity(0.05),
-                                                      blurRadius: 8,
-                                                      offset: const Offset(0, 2),
-                                                    ),
-                                                  ],
-                                                ),
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    _buildMessageContent(message, isCurrentUser),
-                                                    SizedBox(height: isDesktop ? 6 : 4),
-                                                    Row(
-                                                      mainAxisSize: MainAxisSize.min,
-                                                      children: [
-                                                        if (message['isSending'] == true)
-                                                          SizedBox(
-                                                            width: isDesktop ? 14 : 12,
-                                                            height: isDesktop ? 14 : 12,
-                                                            child: CircularProgressIndicator(
-                                                              strokeWidth: 2,
-                                                              valueColor: AlwaysStoppedAnimation<Color>(
-                                                                Colors.grey[400]!,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        if (message['isSending'] == true)
-                                                          SizedBox(width: isDesktop ? 6 : 4),
-                                                        Text(
-                                                          formatTime(message['timestamp']),
-                                                          style: TextStyle(
-                                                            fontSize: isDesktop ? 12 : 11,
-                                                            color: message['isSending'] == true
-                                                                ? Colors.grey[400]
-                                                                : isCurrentUser 
-                                                                    ? Colors.grey[600]
-                                                                    : Colors.grey[600],
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
           ),
           if (_selectedImage != null) _buildSelectedImagePreview(),
+          if (_replyingToMessage != null) _buildReplyPreview(),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -1296,19 +1876,29 @@ class _ChatPageState extends State<ChatPage> {
               children: [
                 Container(
                   decoration: BoxDecoration(
-                    color: _selectedImage != null ? colorScheme.primary.withOpacity(0.1) : null,
+                    color:
+                        _selectedImage != null
+                            ? colorScheme.primary.withOpacity(0.1)
+                            : null,
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
                     icon: Icon(
-                      _selectedImage != null ? Icons.image : Icons.photo_outlined,
-                      color: _selectedImage != null ? colorScheme.primary : Colors.grey[600],
+                      _selectedImage != null
+                          ? Icons.image
+                          : Icons.photo_outlined,
+                      color:
+                          _selectedImage != null
+                              ? colorScheme.primary
+                              : Colors.grey[600],
                       size: 28,
                     ),
-                    tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
-                    onPressed: _selectedImage != null
-                        ? _sendImage
-                        : _pickAndValidateImage,
+                    tooltip:
+                        _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
+                    onPressed:
+                        _selectedImage != null
+                            ? _sendImage
+                            : _pickAndValidateImage,
                   ),
                 ),
                 const SizedBox(width: 2),
@@ -1320,12 +1910,16 @@ class _ChatPageState extends State<ChatPage> {
                     ),
                     child: TextField(
                       controller: _messageController,
+                      focusNode: _messageFocusNode,
                       maxLines: null,
                       keyboardType: TextInputType.multiline,
                       textInputAction: TextInputAction.newline,
                       style: const TextStyle(fontSize: 15),
                       decoration: InputDecoration(
-                        hintText: 'พิมพ์ข้อความ...',
+                        hintText:
+                            _replyingToMessage != null
+                                ? 'พิมพ์ข้อความตอบกลับ...'
+                                : 'พิมพ์ข้อความ...',
                         hintStyle: TextStyle(color: Colors.grey[500]),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
@@ -1337,33 +1931,41 @@ class _ChatPageState extends State<ChatPage> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                if (_messageController.text.trim().isNotEmpty || _selectedImage != null)
+                if (_messageController.text.trim().isNotEmpty ||
+                    _selectedImage != null)
                   Container(
                     decoration: BoxDecoration(
                       color: colorScheme.primary,
                       shape: BoxShape.circle,
                     ),
                     child: IconButton(
-                      onPressed: isSending 
-                          ? null 
-                          : _selectedImage != null 
-                              ? _sendImage 
+                      onPressed:
+                          isSending
+                              ? null
+                              : _selectedImage != null
+                              ? _sendImage
                               : _sendMessage,
-                      icon: isSending
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      icon:
+                          isSending
+                              ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                              : Icon(
+                                _selectedImage != null
+                                    ? Icons.send_rounded
+                                    : Icons.send_rounded,
+                                size: 20,
                               ),
-                            )
-                          : Icon(
-                              _selectedImage != null ? Icons.send_rounded : Icons.send_rounded,
-                              size: 20,
-                            ),
                       color: Colors.white,
-                      tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'ส่งข้อความ',
+                      tooltip:
+                          _selectedImage != null ? 'ส่งรูปภาพ' : 'ส่งข้อความ',
                     ),
                   ),
               ],
@@ -1378,62 +1980,66 @@ class _ChatPageState extends State<ChatPage> {
   void _showFullScreenImage(String imageUrl) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-            backgroundColor: Colors.black,
-            elevation: 0,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
-          body: Center(
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: Image.network(
-                imageUrl.startsWith('http') ? imageUrl : '${ApiService.baseUrl}$imageUrl',
-                fit: BoxFit.contain,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Center(
-                    child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded / 
-                            loadingProgress.expectedTotalBytes!
-                          : null,
-                      color: Colors.white,
-                    ),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) {
-                  print('Error loading full screen image: $error');
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          color: Colors.red,
-                          size: 40,
+        builder:
+            (context) => Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(
+                backgroundColor: Colors.black,
+                elevation: 0,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              body: Center(
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: Image.network(
+                    imageUrl.startsWith('http')
+                        ? imageUrl
+                        : '${ApiService.baseUrl}$imageUrl',
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Center(
+                        child: CircularProgressIndicator(
+                          value:
+                              loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                  : null,
+                          color: Colors.white,
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'เกิดข้อผิดพลาดในการโหลดรูปภาพเต็มหน้าจอ',
-                          style: TextStyle(
-                            color: Colors.grey[400],
-                            fontSize: 14,
-                          ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      print('Error loading full screen image: $error');
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              color: Colors.red,
+                              size: 40,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'เกิดข้อผิดพลาดในการโหลดรูปภาพเต็มหน้าจอ',
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
       ),
     );
   }
@@ -1449,16 +2055,15 @@ class _ChatPageState extends State<ChatPage> {
           color: Colors.grey[200],
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Center(
-          child: Text('ไม่สามารถโหลดรูปภาพได้'),
-        ),
+        child: const Center(child: Text('ไม่สามารถโหลดรูปภาพได้')),
       );
     }
 
     // สร้าง URL เต็มสำหรับรูปภาพ
-    final fullImageUrl = imageUrl.startsWith('http') 
-        ? imageUrl 
-        : '${ApiService.baseUrl}$imageUrl';
+    final fullImageUrl =
+        imageUrl.startsWith('http')
+            ? imageUrl
+            : '${ApiService.baseUrl}$imageUrl';
 
     print('กำลังโหลดรูปภาพจาก URL: $fullImageUrl'); // Debug log
 
@@ -1493,10 +2098,11 @@ class _ChatPageState extends State<ChatPage> {
                   color: Colors.grey[200],
                   child: Center(
                     child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded / 
-                            loadingProgress.expectedTotalBytes!
-                          : null,
+                      value:
+                          loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded /
+                                  loadingProgress.expectedTotalBytes!
+                              : null,
                       color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
@@ -1520,10 +2126,7 @@ class _ChatPageState extends State<ChatPage> {
                       const SizedBox(height: 8),
                       Text(
                         'ไม่สามารถโหลดรูปภาพได้',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
                       ),
                     ],
                   ),
@@ -1537,12 +2140,16 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   // Add this function to check if messages should be grouped
-  bool _shouldGroupMessages(Map<String, dynamic> current, Map<String, dynamic>? previous) {
+  bool _shouldGroupMessages(
+    Map<String, dynamic> current,
+    Map<String, dynamic>? previous,
+  ) {
     if (previous == null) return false;
-    
+
     // Check if messages are from the same sender
-    if (current['sender']['employeeID'] != previous['sender']['employeeID']) return false;
-    
+    if (current['sender']['employeeID'] != previous['sender']['employeeID'])
+      return false;
+
     // Check if messages are within 2 minutes of each other
     final currentTime = DateTime.parse(current['timestamp']);
     final previousTime = DateTime.parse(previous['timestamp']);
@@ -1556,13 +2163,13 @@ class _ChatPageState extends State<ChatPage> {
     try {
       // Remove any trailing special characters and spaces
       url = url.trim().replaceAll(RegExp(r'[}\s]+$'), '');
-      
+
       // Find the # separator
       final hashIndex = url.indexOf('#');
-      
+
       String baseUrl;
       String paramString;
-      
+
       if (hashIndex > 0) {
         baseUrl = url.substring(0, hashIndex);
         paramString = url.substring(hashIndex + 1);
@@ -1578,7 +2185,7 @@ class _ChatPageState extends State<ChatPage> {
 
       // Add base URL to params
       params['baseUrl'] = baseUrl;
-      
+
       // Parse parameters
       if (paramString.isNotEmpty) {
         final paramPairs = paramString.split('&');
@@ -1618,12 +2225,12 @@ class _ChatPageState extends State<ChatPage> {
       // Add URL with parameters
       final url = match.group(0)!;
       final params = _parseUrlParameters(url);
-      
+
       // Determine button text and color
       String buttonText = params['status'] ?? 'ไปที่ระบบ CreditLimit';
       print('Final buttonText: $buttonText');
       Color buttonColor = const Color(0xFF3F474E); // Default color
-      
+
       if (params.containsKey('color')) {
         switch (params['color']?.toLowerCase()) {
           case 'green':
@@ -1657,10 +2264,7 @@ class _ChatPageState extends State<ChatPage> {
 
     // Add remaining text
     if (lastIndex < text.length) {
-      parts.add({
-        'type': 'text',
-        'content': text.substring(lastIndex),
-      });
+      parts.add({'type': 'text', 'content': text.substring(lastIndex)});
     }
 
     return parts;
@@ -1673,13 +2277,15 @@ class _ChatPageState extends State<ChatPage> {
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         url = 'http://$url';
       }
-      
+
       final uri = Uri.parse(url);
       print('Launching URL: $uri'); // Debug log
-      
+
       if (!await launchUrl(
         uri,
-        mode: LaunchMode.externalApplication, // This will open in external browser
+        mode:
+            LaunchMode
+                .externalApplication, // This will open in external browser
       )) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1704,57 +2310,76 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   // Update _buildMessageContent to use the button color
-  Widget _buildMessageContent(Map<String, dynamic> message, bool isCurrentUser) {
-    final bool hasImage = message['isImage'] == true && message['imageUrl'] != null;
+  Widget _buildMessageContent(
+    Map<String, dynamic> message,
+    bool isCurrentUser,
+  ) {
+    final bool hasImage =
+        message['isImage'] == true && message['imageUrl'] != null;
     final String? text = message['message'];
+    final bool isReply = message['isReply'] == true;
+    final Map<String, dynamic>? replyToMessage = message['replyToMessage'];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // แสดง reply widget ถ้าเป็นข้อความตอบกลับ
+        if (isReply && replyToMessage != null) ...[
+          _buildReplyWidget(replyToMessage),
+          const SizedBox(height: 6),
+        ],
+
+        // แสดงรูปภาพ
         if (hasImage) _buildMessageImage(message['imageUrl'], isCurrentUser),
         if (text != null && text.trim().isNotEmpty) ...[
-          if (hasImage) const SizedBox(height: 8),
+          if (hasImage) const SizedBox(height: 6),
           ..._parseMessageWithUrls(text).map((part) {
             if (part['type'] == 'text') {
               return Text(
                 part['content'],
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 14,
                   color: isCurrentUser ? Colors.black87 : Colors.black87,
                 ),
               );
             } else {
-              // Check if button color is yellow to determine text color
-              final bool isYellowButton = part['buttonColor'] == const Color.fromARGB(255, 255, 230, 0);
+              final bool isYellowButton =
+                  part['buttonColor'] == const Color.fromARGB(255, 255, 230, 0);
               return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 1),
+                padding: const EdgeInsets.symmetric(vertical: 2),
                 child: ElevatedButton(
                   onPressed: () => _launchUrl(part['content']),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: part['buttonColor'] ?? const Color(0xFF3F474E),
-                    foregroundColor: isYellowButton ? Colors.black : Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    backgroundColor:
+                        part['buttonColor'] ?? const Color(0xFF3F474E),
+                    foregroundColor:
+                        isYellowButton ? Colors.black : Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
                     elevation: 1,
-                    shadowColor: Colors.black.withOpacity(0.1),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
                         Icons.open_in_new,
-                        size: 12,
-                        color: isYellowButton ? Colors.black.withOpacity(0.9) : Colors.white.withOpacity(0.9),
+                        size: 14,
+                        color:
+                            isYellowButton
+                                ? Colors.black.withOpacity(0.9)
+                                : Colors.white.withOpacity(0.9),
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 6),
                       Text(
                         part['buttonText'],
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: isYellowButton ? Colors.black : Colors.white,
                         ),
                       ),
                     ],
@@ -1765,6 +2390,78 @@ class _ChatPageState extends State<ChatPage> {
           }).toList(),
         ],
       ],
+    );
+  }
+
+  void _showMessageMenu(Map<String, dynamic> message, bool isCurrentUser) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.reply,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                  title: const Text('ตอบกลับ'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _replyToMessage(message);
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.copy, color: Colors.grey[700]),
+                  title: const Text('คัดลอกข้อความ'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    // Add copy functionality here
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
+                    );
+                  },
+                ),
+                if (isCurrentUser)
+                  ListTile(
+                    leading: Icon(Icons.edit, color: Colors.grey[700]),
+                    title: const Text('แก้ไข'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      // Add edit functionality here
+                    },
+                  ),
+                if (isCurrentUser)
+                  ListTile(
+                    leading: Icon(Icons.delete, color: Colors.red[700]),
+                    title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
+                    onTap: () {
+                      Navigator.pop(context);
+                      // Add delete functionality here
+                    },
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
     );
   }
 
@@ -1803,10 +2500,7 @@ class _ChatPageState extends State<ChatPage> {
       final tempMessage = {
         '_id': DateTime.now().millisecondsSinceEpoch.toString(),
         'room': widget.roomId,
-        'sender': {
-          'employeeID': currentUser,
-          'fullName': 'You',
-        },
+        'sender': {'employeeID': currentUser, 'fullName': 'You'},
         'timestamp': DateTime.now().toIso8601String(),
         'isRead': true,
         'isImage': true,
@@ -1838,7 +2532,9 @@ class _ChatPageState extends State<ChatPage> {
 
       // Update message in list with actual data
       setState(() {
-        final index = messages.indexWhere((m) => m['_id'] == tempMessage['_id']);
+        final index = messages.indexWhere(
+          (m) => m['_id'] == tempMessage['_id'],
+        );
         if (index != -1) {
           final updated = {
             ...messages[index],
@@ -1847,7 +2543,8 @@ class _ChatPageState extends State<ChatPage> {
             'isImage': true,
           };
           // อัปเดต message เฉพาะถ้ามีใน response
-          if (response['message'] != null && response['message'].toString().trim().isNotEmpty) {
+          if (response['message'] != null &&
+              response['message'].toString().trim().isNotEmpty) {
             updated['message'] = response['message'];
           } else {
             updated.remove('message');
@@ -1855,7 +2552,6 @@ class _ChatPageState extends State<ChatPage> {
           messages[index] = updated;
         }
       });
-
     } catch (e) {
       print('Error sending image: $e');
       // Remove temporary message on error
@@ -1863,9 +2559,9 @@ class _ChatPageState extends State<ChatPage> {
         messages.removeWhere((m) => m['isLoading'] == true);
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send image: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send image: $e')));
       }
     }
   }
@@ -1884,10 +2580,7 @@ class _ChatPageState extends State<ChatPage> {
       final tempMessage = {
         '_id': DateTime.now().millisecondsSinceEpoch.toString(),
         'room': widget.roomId,
-        'sender': {
-          'employeeID': currentUser,
-          'fullName': 'You',
-        },
+        'sender': {'employeeID': currentUser, 'fullName': 'You'},
         'timestamp': DateTime.now().toIso8601String(),
         'isRead': true,
         'isLoading': true,
@@ -1913,15 +2606,13 @@ class _ChatPageState extends State<ChatPage> {
 
       // Update message in list
       setState(() {
-        final index = messages.indexWhere((m) => m['_id'] == tempMessage['_id']);
+        final index = messages.indexWhere(
+          (m) => m['_id'] == tempMessage['_id'],
+        );
         if (index != -1) {
-          messages[index] = {
-            ...messages[index],
-            'isLoading': false,
-          };
+          messages[index] = {...messages[index], 'isLoading': false};
         }
       });
-
     } catch (e) {
       print('Error sending message: $e');
       // Remove temporary message on error
@@ -1929,9 +2620,9 @@ class _ChatPageState extends State<ChatPage> {
         messages.removeWhere((m) => m['isLoading'] == true);
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send message: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send message: $e')));
       }
     }
   }
@@ -1954,150 +2645,167 @@ class _ChatPageState extends State<ChatPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.75,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-          ),
-        ),
-        child: Column(
-          children: [
-            // Handle bar
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
+      builder:
+          (context) => Container(
+            height: MediaQuery.of(context).size.height * 0.75,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
               ),
             ),
-            // Profile content
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    // Profile image
-                    Container(
-                      margin: const EdgeInsets.only(top: 24),
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: sender['role'] == 'bot' 
-                            ? Colors.white.withOpacity(0.1)
-                            : null,
-                        image: sender['role'] != 'bot' && sender['imgUrl'] != null
-                            ? DecorationImage(
-                                image: NetworkImage(sender['imgUrl']),
-                                fit: BoxFit.cover,
-                                onError: (exception, stackTrace) {
-                                  print('Error loading profile image: $exception');
-                                },
-                              )
-                            : null,
-                        gradient: sender['role'] != 'bot' && sender['imgUrl'] == null
-                            ? LinearGradient(
-                                colors: [
-                                  Theme.of(context).colorScheme.primary.withOpacity(0.8),
-                                  Theme.of(context).colorScheme.primary,
-                                ],
-                              )
-                            : null,
-                      ),
-                      child: sender['role'] == 'bot'
-                          ? Image.asset(
-                              'assets/images/mascot.png',
-                              fit: BoxFit.cover,
-                            )
-                          : sender['imgUrl'] == null
-                              ? Center(
-                                  child: Text(
-                                    (sender['fullName'] ?? '?')[0].toUpperCase(),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 48,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                )
-                              : null,
-                    ),
-                    const SizedBox(height: 16),
-                    // User name
-                    Column(
+            child: Column(
+              children: [
+                // Handle bar
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                // Profile content
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
                       children: [
-                        // Thai name
-                        Text(
-                          sender['fullNameThai'] ?? 'Unknown',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
+                        // Profile image
+                        Container(
+                          margin: const EdgeInsets.only(top: 24),
+                          width: 120,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color:
+                                sender['role'] == 'bot'
+                                    ? Colors.white.withOpacity(0.1)
+                                    : null,
+                            image:
+                                sender['role'] != 'bot' &&
+                                        sender['imgUrl'] != null
+                                    ? DecorationImage(
+                                      image: NetworkImage(sender['imgUrl']),
+                                      fit: BoxFit.cover,
+                                      onError: (exception, stackTrace) {
+                                        print(
+                                          'Error loading profile image: $exception',
+                                        );
+                                      },
+                                    )
+                                    : null,
+                            gradient:
+                                sender['role'] != 'bot' &&
+                                        sender['imgUrl'] == null
+                                    ? LinearGradient(
+                                      colors: [
+                                        Theme.of(
+                                          context,
+                                        ).colorScheme.primary.withOpacity(0.8),
+                                        Theme.of(context).colorScheme.primary,
+                                      ],
+                                    )
+                                    : null,
                           ),
+                          child:
+                              sender['role'] == 'bot'
+                                  ? Image.asset(
+                                    'assets/images/mascot.png',
+                                    fit: BoxFit.cover,
+                                  )
+                                  : sender['imgUrl'] == null
+                                  ? Center(
+                                    child: Text(
+                                      (sender['fullName'] ?? '?')[0]
+                                          .toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 48,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  )
+                                  : null,
                         ),
-                        // English name
-                        if (sender['fullName'] != null && sender['fullName'] != sender['fullNameThai'])
-                          Text(
-                            sender['fullName']!,
+                        const SizedBox(height: 16),
+                        // User name
+                        Column(
+                          children: [
+                            // Thai name
+                            Text(
+                              sender['fullNameThai'] ?? 'Unknown',
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            // English name
+                            if (sender['fullName'] != null &&
+                                sender['fullName'] != sender['fullNameThai'])
+                              Text(
+                                sender['fullName']!,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // Role badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                sender['role'] == 'bot'
+                                    ? Colors.red.withOpacity(0.1)
+                                    : Theme.of(
+                                      context,
+                                    ).colorScheme.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            sender['role'] == 'bot' ? 'Bot' : 'User',
                             style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
+                              color:
+                                  sender['role'] == 'bot'
+                                      ? Colors.red
+                                      : Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
+                        ),
+                        const SizedBox(height: 24),
+                        // Additional info
+                        if (sender['role'] != 'bot') ...[
+                          _buildInfoItem(
+                            icon: Icons.email_outlined,
+                            label: 'Email',
+                            value: sender['mail'] ?? 'ไม่ระบุ',
+                          ),
+                          _buildInfoItem(
+                            icon: Icons.business_outlined,
+                            label: 'แผนก',
+                            value: sender['department'] ?? 'ไม่ระบุ',
+                          ),
+                          _buildInfoItem(
+                            icon: Icons.work_outline,
+                            label: 'ตำแหน่ง',
+                            value: sender['positon'] ?? 'ไม่ระบุ',
+                          ),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    // Role badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: sender['role'] == 'bot'
-                            ? Colors.red.withOpacity(0.1)
-                            : Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        sender['role'] == 'bot' ? 'Bot' : 'User',
-                        style: TextStyle(
-                          color: sender['role'] == 'bot'
-                              ? Colors.red
-                              : Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    // Additional info
-                    if (sender['role'] != 'bot') ...[
-                      _buildInfoItem(
-                        icon: Icons.email_outlined,
-                        label: 'Email',
-                        value: sender['mail'] ?? 'ไม่ระบุ',
-                      ),
-                      _buildInfoItem(
-                        icon: Icons.business_outlined,
-                        label: 'แผนก',
-                        value: sender['department'] ?? 'ไม่ระบุ',
-                      ),
-                      _buildInfoItem(
-                        icon: Icons.work_outline,
-                        label: 'ตำแหน่ง',
-                        value: sender['positon'] ?? 'ไม่ระบุ',
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -2111,11 +2819,7 @@ class _ChatPageState extends State<ChatPage> {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: 24,
-            color: Colors.grey[600],
-          ),
+          Icon(icon, size: 24, color: Colors.grey[600]),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -2123,10 +2827,7 @@ class _ChatPageState extends State<ChatPage> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                 ),
                 const SizedBox(height: 4),
                 Text(

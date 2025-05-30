@@ -8,11 +8,12 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/material.dart';
 
 class ApiService {
-  IO.Socket? socket;  // Make socket nullable
+  IO.Socket? socket; // Make socket nullable
   String? userId;
-  static String get baseUrl => dotenv.env['API_BASE_URL'] ?? 'http://localhost:3000';
+  static String get baseUrl =>
+      dotenv.env['API_BASE_URL'] ?? 'http://localhost:3000';
   String? _token;
-  bool _isInitialized = false;  // Add initialization flag
+  bool _isInitialized = false; // Add initialization flag
 
   ApiService() {
     print('=== ApiService Constructor ===');
@@ -108,7 +109,7 @@ class ApiService {
         print('Socket connected: ${socket?.connected}');
         print('User ID: $userId');
         print('Socket auth: ${socket?.auth}');
-        
+
         // Emit user connected event
         if (userId != null) {
           socket?.emit('userConnected', {'userId': userId});
@@ -155,7 +156,6 @@ class ApiService {
       //     print('ห้องที่บอท join: $rooms');
       //   });
       // });
-
     } catch (e) {
       print('Error initializing socket: $e');
       // Attempt to reconnect on initialization error
@@ -230,7 +230,7 @@ class ApiService {
     print('Socket connected: ${socket?.connected}');
     print('Socket ID: ${socket?.id}');
     print('User ID: $userId');
-    
+
     await ensureInitialized();
     if (socket == null || !socket!.connected) {
       print('Socket not connected, initializing...');
@@ -240,23 +240,20 @@ class ApiService {
     try {
       // Remove existing listeners
       socket?.off('roomJoined');
-      
+
       print('Emitting joinRoom event');
-      final joinData = {
-        'roomId': roomId,
-        'userId': userId,
-      };
+      final joinData = {'roomId': roomId, 'userId': userId};
       print('Join room payload: $joinData');
-      
+
       socket?.emit('joinRoom', joinData);
-      
+
       // Listen for roomJoined event
       socket?.once('roomJoined', (data) {
         print('=== Room Joined Response ===');
         print('Data: $data');
         print('Socket connected: ${socket?.connected}');
         print('Socket ID: ${socket?.id}');
-        
+
         if (data is Map<String, dynamic>) {
           if (data['success'] == true) {
             print('Successfully joined room: $roomId');
@@ -288,7 +285,7 @@ class ApiService {
     }
     print('Leaving room: $roomId'); // Debug log
     socket?.emit('leaveRoom', {'roomId': roomId});
-    
+
     // Listen for roomLeft event
     socket?.once('roomLeft', (data) {
       print('Room left response: $data');
@@ -305,7 +302,7 @@ class ApiService {
     }
     print('Leaving all rooms'); // Debug log
     socket?.emit('leaveAll', {});
-    
+
     // Listen for leftAllRooms event
     socket?.once('leftAllRooms', (data) {
       print('Left all rooms response: $data');
@@ -315,19 +312,23 @@ class ApiService {
     });
   }
 
-  Future<void> sendMessage({
+  Future<Map<String, dynamic>> sendMessage({
     required String roomId,
     required String message,
     required String employeeId,
     bool isAdminNotification = false,
+    String? replyToId,
+    Map<String, dynamic>? replyToMessage,
   }) async {
     await ensureInitialized();
     print('=== Sending Message ===');
     print('Room ID: $roomId');
     print('Employee ID: $employeeId');
+    print('Reply To ID: $replyToId');
+    print('Reply Message: $replyToMessage');
     print('Socket connected: ${socket?.connected}');
     print('Socket ID: ${socket?.id}');
-    
+
     try {
       if (socket?.connected != true) {
         print('Socket not connected, attempting to reconnect...');
@@ -344,13 +345,16 @@ class ApiService {
       }
 
       // Emit message directly through socket
-      socket?.emit('sendMessage', {
-        'roomId': roomId,
-        'message': message,
-        'employeeId': employeeId,
-        'timestamp': DateTime.now().toIso8601String(),
-        'isAdminNotification': isAdminNotification,
-      });
+      // socket?.emit('sendMessage', {
+      //   'roomId': roomId,
+      //   'message': message,
+      //   'employeeId': employeeId,
+      //   'timestamp': DateTime.now().toIso8601String(),
+      //   'isAdminNotification': isAdminNotification,
+      //   'isReply': replyToId != null,
+      //   'replyToId': replyToId,
+      //   'replyToMessage': replyToMessage,
+      // });
 
       // Also send through HTTP for persistence
       final response = await http.post(
@@ -361,16 +365,21 @@ class ApiService {
           'message': [message],
           'employeeId': employeeId,
           'isAdminNotification': isAdminNotification,
+          'isReply': replyToId != null,
+          'replyToId': replyToId,
+          'replyToMessage': replyToMessage,
         }),
       );
 
       print('Message send response: ${response.body}');
-      
+
       if (response.statusCode != 200) {
         final errorData = jsonDecode(response.body);
         throw Exception(errorData['error'] ?? 'Failed to send message');
       }
 
+      final responseData = jsonDecode(response.body);
+      return responseData['data'] ?? responseData;
     } catch (e) {
       print('=== Error Sending Message ===');
       print('Error details: $e');
@@ -384,25 +393,27 @@ class ApiService {
       print('Socket is null, initializing...');
       await _initSocket();
     }
-    
+
     print('=== Setting up New Message Listener ===');
     print('Socket connected: ${socket?.connected}');
     print('Socket ID: ${socket?.id}');
-    
+
     // Remove ALL existing message listeners to prevent duplicates
     socket?.off('newMessage');
     socket?.off('messageBroadcast');
     socket?.off('messageSent');
     socket?.off('messageReceived');
-    
+
     // Listen for newMessage event
     socket?.on('newMessage', (data) {
       print('=== รับข้อความใหม่ ===');
-      print('เป็นข้อความจากบอท: ${(data is Map && data['sender'] is Map) ? (data['sender'] as Map)['role'] == 'bot' : false}');
+      print(
+        'เป็นข้อความจากบอท: ${(data is Map && data['sender'] is Map) ? (data['sender'] as Map)['role'] == 'bot' : false}',
+      );
       print('ข้อมูลทั้งหมด: $data');
       print('Socket connected: ${socket?.connected}');
       print('Socket ID: ${socket?.id}');
-      
+
       try {
         // Handle case where data is a list
         dynamic messageData;
@@ -412,11 +423,11 @@ class ApiService {
             print('Empty data list received');
             return;
           }
-          
+
           // Safely check first element
           final firstElement = data.first;
           print('First element type: ${firstElement.runtimeType}');
-          
+
           if (firstElement is Map) {
             messageData = firstElement;
             print('Extracted message from list:');
@@ -428,7 +439,9 @@ class ApiService {
             print('- Is Read: ${messageData['isRead']}');
             print('- Success: ${messageData['success']}');
           } else {
-            print('First element is not a Map, type: ${firstElement.runtimeType}');
+            print(
+              'First element is not a Map, type: ${firstElement.runtimeType}',
+            );
             return;
           }
         } else if (data is Map) {
@@ -446,16 +459,29 @@ class ApiService {
 
         // Process the message data with null safety
         final processedMessage = {
-          '_id': messageData['_id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+          '_id':
+              messageData['_id']?.toString() ??
+              DateTime.now().millisecondsSinceEpoch.toString(),
           'room': messageData['room']?.toString(),
           'message': messageData['message']?.toString() ?? '',
-          'sender': messageData['sender'] is Map 
-              ? Map<String, dynamic>.from(messageData['sender'])
-              : {'fullName': messageData['sender']?.toString() ?? 'Unknown'},
-          'timestamp': messageData['timestamp']?.toString() ?? DateTime.now().toIso8601String(),
+          'sender':
+              messageData['sender'] is Map
+                  ? Map<String, dynamic>.from(messageData['sender'])
+                  : {
+                    'fullName': messageData['sender']?.toString() ?? 'Unknown',
+                  },
+          'timestamp':
+              messageData['timestamp']?.toString() ??
+              DateTime.now().toIso8601String(),
           'isRead': messageData['isRead'] ?? false,
           'isImage': messageData['isImage'] ?? false,
           'imageUrl': messageData['imageUrl'],
+          'isReply': messageData['isReply'] ?? false,
+          'replyTo': messageData['replyTo'],
+          'replyToMessage':
+              messageData['replyToMessage'] is Map
+                  ? Map<String, dynamic>.from(messageData['replyToMessage'])
+                  : null,
         };
 
         print('Processed message:');
@@ -465,7 +491,10 @@ class ApiService {
         print('- Sender: ${processedMessage['sender']}');
         print('- Timestamp: ${processedMessage['timestamp']}');
         print('- Is Read: ${processedMessage['isRead']}');
-        
+        print('- Is Reply: ${processedMessage['isReply']}');
+        print('- Reply To: ${processedMessage['replyTo']}');
+        print('- Reply To Message: ${processedMessage['replyToMessage']}');
+
         print('Calling message callback...');
         callback(processedMessage);
         print('Message callback completed\n');
@@ -502,10 +531,8 @@ class ApiService {
     print('Room ID: $roomId');
     print('User ID: $userId');
     print('Base URL: $baseUrl');
-    
-    final requestBody = {
-      'userId': userId.toString(),
-    };
+
+    final requestBody = {'userId': userId.toString()};
     print('Request body: ${jsonEncode(requestBody)}');
     print('Full URL: $baseUrl/api/rooms/notifications/read/$roomId');
 
@@ -526,7 +553,8 @@ class ApiService {
       if (response.statusCode != 200) {
         final errorData = jsonDecode(response.body);
         print('Error response data: $errorData');
-        final errorMessage = errorData['message'] ?? 'Failed to mark room as read';
+        final errorMessage =
+            errorData['message'] ?? 'Failed to mark room as read';
         print('Error message: $errorMessage');
         throw Exception(errorMessage);
       }
@@ -535,7 +563,6 @@ class ApiService {
       socket?.once('unreadCountUpdate', (data) {
         print('Received unreadCountUpdate event: $data');
       });
-
     } catch (e) {
       print('❌ Error in markRoomAsRead:');
       print('Error type: ${e.runtimeType}');
@@ -545,13 +572,22 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadImage(File imageFile, String roomId, String employeeId, {String? message}) async {
+  Future<Map<String, dynamic>> uploadImage(
+    File imageFile,
+    String roomId,
+    String employeeId, {
+    String? message,
+    String? replyToId,
+    Map<String, dynamic>? replyToMessage,
+  }) async {
     try {
       print('=== Uploading Image ===');
       print('Room ID: $roomId');
       print('Employee ID: $employeeId');
       print('File path: ${imageFile.path}');
       print('Message: $message');
+      print('Reply To ID: $replyToId');
+      print('Reply Message: $replyToMessage');
 
       // Get file extension and determine mimetype
       final fileExtension = imageFile.path.split('.').last.toLowerCase();
@@ -598,10 +634,19 @@ class ApiService {
       if (message != null && message.isNotEmpty) {
         request.fields['message'] = message;
       }
+      if (replyToId != null) {
+        request.fields['isReply'] = 'true';
+        request.fields['replyToId'] = replyToId;
+        if (replyToMessage != null) {
+          request.fields['replyToMessage'] = jsonEncode(replyToMessage);
+        }
+      }
 
       print('Sending upload request...');
       print('Request fields: ${request.fields}');
-      print('Request files: ${request.files.map((f) => '${f.filename} (${f.contentType})').join(', ')}');
+      print(
+        'Request files: ${request.files.map((f) => '${f.filename} (${f.contentType})').join(', ')}',
+      );
 
       // Send request
       var streamedResponse = await request.send();
@@ -616,23 +661,27 @@ class ApiService {
           final responseData = json.decode(response.body);
           if (responseData['statusCode'] == 200) {
             // Emit socket event for real-time update
-            if (socket?.connected == true) {
-              print('=== Emitting socket event for uploaded image ===');
-              print('Room ID: $roomId');
-              print('Image URL: ${responseData['data']['imageUrl']}');
-              socket?.emit('sendMessage', {
-                'roomId': roomId,
-                'message': message ?? '',
-                'employeeId': employeeId,
-                'timestamp': DateTime.now().toIso8601String(),
-                'isImage': true,
-                'imageUrl': responseData['data']['imageUrl'],
-              });
-              print('=== Socket event emitted for uploaded image ===');
-            }
+            // if (socket?.connected == true) {
+            //   print('=== Emitting socket event for uploaded image ===');
+            //   print('Image URL: ${responseData['data']['imageUrl']}');
+            //   socket?.emit('sendMessage', {
+            //     'roomId': roomId,
+            //     'message': message ?? '',
+            //     'employeeId': employeeId,
+            //     'timestamp': DateTime.now().toIso8601String(),
+            //     'isImage': true,
+            //     'imageUrl': responseData['data']['imageUrl'],
+            //     'isReply': replyToId != null,
+            //     'replyToId': replyToId,
+            //     'replyToMessage': replyToMessage,
+            //   });
+            //   print('=== Socket event emitted for uploaded image ===');
+            // }
             return responseData['data'];
           } else {
-            throw Exception(responseData['message'] ?? 'Failed to upload image');
+            throw Exception(
+              responseData['message'] ?? 'Failed to upload image',
+            );
           }
         } catch (e) {
           print('Error parsing response: $e');
@@ -641,10 +690,15 @@ class ApiService {
       } else {
         try {
           final errorData = json.decode(response.body);
-          throw Exception(errorData['message'] ?? 'Failed to upload image: ${response.statusCode}');
+          throw Exception(
+            errorData['message'] ??
+                'Failed to upload image: ${response.statusCode}',
+          );
         } catch (e) {
           print('Error parsing error response: $e');
-          throw Exception('Failed to upload image: ${response.statusCode} - ${response.body}');
+          throw Exception(
+            'Failed to upload image: ${response.statusCode} - ${response.body}',
+          );
         }
       }
     } catch (e) {
@@ -664,7 +718,7 @@ class ApiService {
       socket?.off('messageSent');
       socket?.off('roomJoined');
       socket?.off('roomLeft');
-      
+
       socket?.disconnect();
       socket?.dispose();
       socket = null;
@@ -677,7 +731,7 @@ class ApiService {
   Future<void> ensureInitialized() async {
     if (!_isInitialized) {
       await _initialize();
-    }else{
+    } else {
       print('Socket already initialized');
     }
   }

@@ -89,17 +89,18 @@ class _LoginPageState extends State<LoginPage> {
       body: Center(
         child: SingleChildScrollView(
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Image.asset(
-                  'assets/images/logo-fplus.png',
-                  height: 120,
+                  'assets/images/logo-onetwo.png',
+                  height: 140,
+                  fit: BoxFit.contain,
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'Notification Chat',
+                  '12Chat',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -109,7 +110,8 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+                  width: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
@@ -204,13 +206,23 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                           ),
                         ),const SizedBox(height: 24),
-                        Text(
-                             'Copyright One Two Trading Co., Ltd. All rights reserved.',   
-                                style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w400,
-                              
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Image.asset(
+                              'assets/images/logo-fplus.png',
+                              height: 16,
+                              fit: BoxFit.contain,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Copyright One Two Trading Co., Ltd. All rights reserved.',   
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
