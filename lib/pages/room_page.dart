@@ -82,6 +82,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
   String _userName = '';
   final List<ChatRoom> _chatRooms = [];
   bool _isLoading = true;
+    bool _isNavigating = false;
   String? _errorMessage;
   String? _currentUserEmployeeId;
   bool _isDisposed = false;
@@ -712,56 +713,108 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     );
   }
 
-  Future<void> _handleRoomTap(ChatRoom room) async {
-    print('\n=== Room Tap Handler ===');
-    print('Room ID: ${room.id}');
-    print('Room Name: ${room.name}');
-    print('Current User ID: $_currentUserEmployeeId');
-    
-    try {
-      print('Attempting to mark room as read...');
-      await widget.apiService.markRoomAsRead(room.id);
-      print('Successfully marked room as read');
 
-      // Update local state immediately
-      _updateRoomUnreadCount(room.id, 0);
-
-      if (mounted) {
-        print('Navigating to chat page...');
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ChatPage(
-              roomId: room.id,
-              roomName: room.name,
-              apiService: widget.apiService,
-              userRole: room.userRole,
-              imageUrl: room.imageUrl,
-              color: room.color,
+Future<void> _handleRoomTap(ChatRoom room) async {
+  print('\n=== Room Tap Handler ===');
+  print('Room ID: ${room.id}');
+  print('Room Name: ${room.name}');
+  print('Current User ID: $_currentUserEmployeeId');
+  
+  // ป้องกันการกดซ้ำขณะกำลัง navigate
+  if (_isNavigating) return;
+  
+  setState(() {
+    _isNavigating = true;
+  });
+  
+  // แสดง loading dialog
+  if (mounted) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return WillPopScope(
+          onWillPop: () async => false, // ป้องกันการกด back button
+          child: const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      'กำลังเข้าสู่ห้องแชท...',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         );
-        
-        // Refresh room data if returning from chat page
-        if (result == true) {
-          print('Refreshing room data after returning from chat...');
-          await _refreshData();
-        }
-      }
-    } catch (e) {
-      print('❌ Error in room tap handler: $e');
+      },
+    );
+  }
+  
+  try {
+    print('Attempting to mark room as read...');
+    await widget.apiService.markRoomAsRead(room.id);
+    print('Successfully marked room as read');
+
+    // Update local state immediately
+    _updateRoomUnreadCount(room.id, 0);
+
+    if (mounted) {
+      // ปิด loading dialog
+      Navigator.of(context).pop();
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ไม่สามารถอัพเดทสถานะการอ่านได้: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
+      print('Navigating to chat page...');
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatPage(
+            roomId: room.id,
+            roomName: room.name,
+            apiService: widget.apiService,
+            userRole: room.userRole,
+            imageUrl: room.imageUrl,
+            color: room.color,
           ),
-        );
+        ),
+      );
+      
+      // Refresh room data if returning from chat page
+      if (result == true) {
+        print('Refreshing room data after returning from chat...');
+        await _refreshData();
       }
     }
+  } catch (e) {
+    print('❌ Error in room tap handler: $e');
+    
+    if (mounted) {
+      // ปิด loading dialog ก่อนแสดง error
+      Navigator.of(context).pop();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถเข้าสู่ห้องแชทได้: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  } finally {
+    // รีเซ็ต loading state
+    if (mounted) {
+      setState(() {
+        _isNavigating = false;
+      });
+    }
   }
+}
 
   @override
   void dispose() {

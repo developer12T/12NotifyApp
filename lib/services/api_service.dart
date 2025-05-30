@@ -735,4 +735,24 @@ class ApiService {
       print('Socket already initialized');
     }
   }
+
+  // Add method to get user information
+  Future<Map<String, dynamic>?> getUserInfo(String employeeId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/users/$employeeId'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data;
+      } else {
+        print('Error fetching user info: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('Error fetching user info: $e');
+      return null;
+    }
+  }
 }

@@ -10,6 +10,7 @@ import 'group_settings_page.dart';
 import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
+import 'web_view_page.dart';
 
 class ChatPage extends StatefulWidget {
   final String roomId;
@@ -264,21 +265,18 @@ class _ChatPageState extends State<ChatPage> {
     final sender = _replyingToMessage!['sender'];
     final senderName =
         sender is Map
-            ? (sender['fullName'] ?? 'Unknown')
-            : (sender?.toString() ?? 'Unknown');
+            ? (sender['fullName'] ?? '...')
+            : (sender?.toString() ?? '...');
 
     final messageText = _replyingToMessage!['message'] ?? '';
     final isImage = _replyingToMessage!['isImage'] == true;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 0),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.grey[100],
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(12),
-          topRight: Radius.circular(12),
-        ),
+        borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(color: Theme.of(context).primaryColor, width: 3),
         ),
@@ -1801,8 +1799,9 @@ setState(() {
                                                                         .transparent,
                                                                 child: InkWell(
                                                                   onTap:
-                                                                      () => _replyToMessage(
+                                                                      () => _showMessageMenu(
                                                                         message,
+                                                                        isCurrentUser,
                                                                       ),
                                                                   borderRadius:
                                                                       BorderRadius.circular(
@@ -1825,8 +1824,7 @@ setState(() {
                                                                           ),
                                                                     ),
                                                                     child: Icon(
-                                                                      Icons
-                                                                          .reply,
+                                                                      Icons.more_horiz,
                                                                       size: 18,
                                                                       color:
                                                                           Theme.of(
@@ -1859,7 +1857,11 @@ setState(() {
                     ),
           ),
           if (_selectedImage != null) _buildSelectedImagePreview(),
-          if (_replyingToMessage != null) _buildReplyPreview(),
+          if (_replyingToMessage != null) 
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _buildReplyPreview(),
+            ),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -2270,39 +2272,48 @@ setState(() {
     return parts;
   }
 
-  // Add this function to handle URL launching
-  Future<void> _launchUrl(String url) async {
+  // Update _launchUrl function to use WebViewPage
+  Future<void> _launchUrl(String url, {String? buttonText}) async {
     try {
-      // Ensure URL has proper protocol
+      // ตรวจสอบและปรับ URL
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         url = 'http://$url';
       }
 
-      final uri = Uri.parse(url);
-      print('Launching URL: $uri'); // Debug log
+      print('Opening URL in WebView: $url');
 
-      if (!await launchUrl(
-        uri,
-        mode:
-            LaunchMode
-                .externalApplication, // This will open in external browser
-      )) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('ไม่สามารถเปิดลิงก์ได้'),
-              backgroundColor: Colors.red,
+      // เปิด WebView แทนการเปิดเบราว์เซอร์ภายนอก
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => WebViewPage(
+              url: url,
+              title: buttonText ?? 'เว็บไซต์',
             ),
-          );
-        }
+          ),
+        );
       }
     } catch (e) {
-      print('Error launching URL: $e');
+      print('Error opening WebView: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาดในการเปิดลิงก์: $e'),
+            content: Text('เกิดข้อผิดพลาดในการเปิดหน้าเว็บ: $e'),
             backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'เปิดในเบราว์เซอร์',
+              textColor: Colors.white,
+              onPressed: () async {
+                try {
+                  final uri = Uri.parse(url);
+                  // ใช้ url_launcher เป็น fallback
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (e) {
+                  print('Error launching external browser: $e');
+                }
+              },
+            ),
           ),
         );
       }
@@ -2348,7 +2359,10 @@ setState(() {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: ElevatedButton(
-                  onPressed: () => _launchUrl(part['content']),
+                  onPressed: () => _launchUrl(
+                    part['content'],
+                    buttonText: part['buttonText'], // ส่ง buttonText ไปด้วย
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor:
                         part['buttonColor'] ?? const Color(0xFF3F474E),
@@ -2440,15 +2454,6 @@ setState(() {
                     );
                   },
                 ),
-                if (isCurrentUser)
-                  ListTile(
-                    leading: Icon(Icons.edit, color: Colors.grey[700]),
-                    title: const Text('แก้ไข'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      // Add edit functionality here
-                    },
-                  ),
                 if (isCurrentUser)
                   ListTile(
                     leading: Icon(Icons.delete, color: Colors.red[700]),

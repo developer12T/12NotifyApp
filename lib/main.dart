@@ -54,9 +54,9 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,  // ปิด debug banner ปกติ
       builder: (context, child) {
         return Banner(
-          message: 'ALPHA-TEST',
+          message: 'SYS-TEST',
           location: BannerLocation.bottomEnd,
-          color: Colors.red,
+          color: Colors.grey,
           child: child!,
         );
       },
