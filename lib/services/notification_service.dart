@@ -48,8 +48,8 @@ class NotificationService {
     const AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
       'default_channel',     // ID ของช่องทางการแจ้งเตือน
-      'Default Channel',     // ชื่อช่องทางการแจ้งเตือน
-      channelDescription: 'ช่องทางการแจ้งเตือนเริ่มต้น',
+      '12Chat Notify',       // ชื่อช่องทางการแจ้งเตือน (จะแสดงเป็นหัวข้อ popup)
+      channelDescription: 'ช่องทางการแจ้งเตือน 12Chat',
       importance: Importance.max,    // ความสำคัญสูงสุด
       priority: Priority.high,       // ความสำคัญสูง
       showWhen: true,               // แสดงเวลาที่ได้รับ

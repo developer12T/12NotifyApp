@@ -11,7 +11,7 @@ class ApiService {
   IO.Socket? socket; // Make socket nullable
   String? userId;
   static String get baseUrl =>
-      dotenv.env['API_BASE_URL'] ?? 'http://localhost:3000';
+      'http://192.168.2.81/12chat';
   String? _token;
   bool _isInitialized = false; // Add initialization flag
 
@@ -72,22 +72,23 @@ class ApiService {
     }
 
     try {
-      socket = IO.io(baseUrl, <String, dynamic>{
-        'transports': ['websocket'],
-        'autoConnect': true,
-        'reconnection': true,
-        'reconnectionAttempts': 5,
-        'reconnectionDelay': 1000,
-        'forceNew': true,
-        'debug': true,
-        'auth': userId != null ? {'userId': userId} : null,
-        'query': {'userId': userId}, // Add userId to query parameters
-        'extraHeaders': {
-          'Authorization': 'Bearer $_token', // Add token to headers
-        },
-      });
+      socket = IO.io('http://192.168.2.81:80', <String, dynamic>{
+     'transports': ['websocket'],
+      'path': '/chatio/socket.io/',  // ต้องเปิด comment นี้
+      'reconnection': false,
+      'forceNew': true
+    });
 
-      print('Socket instance created');
+      print('Socket instance created with options:');
+      print('- URL: $baseUrl');
+      print('- Path: /12chat/socket.io');
+      print('- Transport: websocket');
+      print('- AutoConnect: false');
+      
+      // Add explicit connect call
+      print('Attempting to connect socket...');
+      socket?.connect();
+      print('Socket connect() called');
 
       // Remove any existing listeners
       socket?.off('connect');
@@ -104,11 +105,12 @@ class ApiService {
       print('Setting up socket event listeners');
 
       socket?.onConnect((_) {
-        print('=== Socket Connected ===');
+        print('=== Socket Connected Successfully ===');
         print('Socket ID: ${socket?.id}');
         print('Socket connected: ${socket?.connected}');
         print('User ID: $userId');
         print('Socket auth: ${socket?.auth}');
+        print('Socket nsp: ${socket?.nsp}');
 
         // Emit user connected event
         if (userId != null) {
@@ -141,6 +143,10 @@ class ApiService {
       socket?.onConnectError((error) {
         print('=== Socket Connect Error ===');
         print('Error: $error');
+        print('Socket nsp: ${socket?.nsp}');
+        print('Socket connected: ${socket?.connected}');
+        print('Socket ID: ${socket?.id}');
+        print('Base URL: $baseUrl');
         // Attempt to reconnect on connection error
         Future.delayed(const Duration(seconds: 2), () {
           if (socket?.connected != true) {

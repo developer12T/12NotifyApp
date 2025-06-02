@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:io' show Platform;
 
 class WebViewPage extends StatefulWidget {
   final String url;
@@ -189,8 +190,22 @@ class _WebViewPageState extends State<WebViewPage> {
               );
             }
           },
-          onNavigationRequest: (NavigationRequest request) {
+          onNavigationRequest: (NavigationRequest request) async {
             print('WebView: Navigation requested to: ${request.url}');
+            
+            // ถ้าเป็น Windows ให้เปิดใน Chrome
+            if (Platform.isWindows) {
+              try {
+                final uri = Uri.parse(request.url);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  return NavigationDecision.prevent; // ป้องกันการโหลดใน WebView
+                }
+              } catch (e) {
+                print('Error launching external browser: $e');
+              }
+            }
+            
             return NavigationDecision.navigate;
           },
         ),

@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'web_view_page.dart';
+import 'dart:io' show Platform;
 
 class ChatPage extends StatefulWidget {
   final String roomId;
@@ -567,6 +568,21 @@ class _ChatPageState extends State<ChatPage> {
         setState(() {
           isConnecting = true;
         });
+      }
+    });
+
+    // Add listener for message deletion
+    widget.apiService.socket?.on('messageDeleted', (data) {
+      print('Received messageDeleted event: $data');
+      if (mounted && data is Map) {
+        final deletedMessageId = data['messageId']?.toString();
+        final roomId = data['roomId']?.toString();
+
+        if (roomId == widget.roomId && deletedMessageId != null) {
+          setState(() {
+            messages.removeWhere((m) => m['_id'] == deletedMessageId);
+          });
+        }
       }
     });
 
@@ -2280,9 +2296,16 @@ setState(() {
         url = 'http://$url';
       }
 
-      print('Opening URL in WebView: $url');
+      print('Opening URL: $url');
 
-      // เปิด WebView แทนการเปิดเบราว์เซอร์ภายนอก
+      // ถ้าเป็น Windows ให้เปิดในเบราว์เซอร์ภายนอก
+      if (Platform.isWindows) {
+        final uri = Uri.parse(url);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+
+      // สำหรับแพลตฟอร์มอื่นๆ เปิดใน WebView
       if (mounted) {
         await Navigator.push(
           context,
@@ -2295,7 +2318,7 @@ setState(() {
         );
       }
     } catch (e) {
-      print('Error opening WebView: $e');
+      print('Error opening URL: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2307,7 +2330,6 @@ setState(() {
               onPressed: () async {
                 try {
                   final uri = Uri.parse(url);
-                  // ใช้ url_launcher เป็น fallback
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
                 } catch (e) {
                   print('Error launching external browser: $e');
@@ -2411,62 +2433,60 @@ setState(() {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder:
-          (context) => Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(20),
-                topRight: Radius.circular(20),
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                ListTile(
-                  leading: Icon(
-                    Icons.reply,
-                    color: Theme.of(context).primaryColor,
-                  ),
-                  title: const Text('ตอบกลับ'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _replyToMessage(message);
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.copy, color: Colors.grey[700]),
-                  title: const Text('คัดลอกข้อความ'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    // Add copy functionality here
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
-                    );
-                  },
-                ),
-                if (isCurrentUser)
-                  ListTile(
-                    leading: Icon(Icons.delete, color: Colors.red[700]),
-                    title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
-                    onTap: () {
-                      Navigator.pop(context);
-                      // Add delete functionality here
-                    },
-                  ),
-                const SizedBox(height: 8),
-              ],
+            ListTile(
+              leading: Icon(
+                Icons.reply,
+                color: Theme.of(context).primaryColor,
+              ),
+              title: const Text('ตอบกลับ'),
+              onTap: () {
+                Navigator.pop(context);
+                _replyToMessage(message);
+              },
             ),
-          ),
+            ListTile(
+              leading: Icon(Icons.copy, color: Colors.grey[700]),
+              title: const Text('คัดลอกข้อความ'),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
+                );
+              },
+            ),
+            if (isCurrentUser)
+              ListTile(
+                leading: Icon(Icons.delete, color: Colors.red[700]),
+                title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteMessage(message['_id']);
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2848,5 +2868,94 @@ setState(() {
         ],
       ),
     );
+  }
+
+  // Add new function to handle message deletion
+  Future<void> _deleteMessage(String messageId) async {
+    try {
+      if (currentUserId == null) {
+        throw Exception('User ID not found');
+      }
+
+      // Show confirmation dialog
+      final shouldDelete = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('ลบข้อความ'),
+          content: const Text('คุณต้องการลบข้อความนี้ใช่หรือไม่?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ยกเลิก'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('ลบ'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldDelete != true) return;
+
+      // Show loading indicator
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 12),
+                Text('กำลังลบข้อความ...'),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Call API to delete message
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/api/messages/$messageId'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'employeeId': currentUserId}),
+      );
+
+      if (response.statusCode == 200) {
+        // Remove message from local state
+        setState(() {
+          messages.removeWhere((m) => m['_id'] == messageId);
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ลบข้อความสำเร็จ')),
+          );
+        }
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['message'] ?? 'ไม่สามารถลบข้อความได้');
+      }
+    } catch (e) {
+      print('Error deleting message: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถลบข้อความได้: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

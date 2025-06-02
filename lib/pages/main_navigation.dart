@@ -7,6 +7,7 @@ import 'room_page.dart';
 import 'direct_message_page.dart';
 import 'profile_page.dart';
 import '../services/api_service.dart';
+import '../components/side_navigation.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({Key? key}) : super(key: key);
@@ -159,6 +160,8 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 600;
+
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -206,16 +209,27 @@ class _MainNavigationState extends State<MainNavigation> {
           ),
         ),
       ),
-      body: IndexedStack(
-        index: _selectedIndex,
+      body: Row(
         children: [
-          AnnouncementsPage(key: _pageKeys[0]),
-          RoomPage(key: _pageKeys[1], apiService: _apiService),
-          DirectMessagePage(key: _pageKeys[2], recipientId: 'EMP002', recipientName: 'คุณลูกค้า'),
-          ProfilePage(key: _pageKeys[3]),
+          if (isDesktop) SideNavigation(
+            selectedIndex: _selectedIndex,
+            onItemTapped: _onItemTapped,
+            userName: _userName,
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: [
+                AnnouncementsPage(key: _pageKeys[0]),
+                RoomPage(key: _pageKeys[1], apiService: _apiService),
+                DirectMessagePage(key: _pageKeys[2], recipientId: 'EMP002', recipientName: 'คุณลูกค้า'),
+                ProfilePage(key: _pageKeys[3]),
+              ],
+            ),
+          ),
         ],
       ),
-      bottomNavigationBar: Container(
+      bottomNavigationBar: isDesktop ? null : Container(
         decoration: BoxDecoration(
           color: Colors.white,
           // borderRadius: const BorderRadius.only(

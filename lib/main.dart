@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+
 import 'dart:io' show Platform;
 import 'pages/login_page.dart';
 import 'pages/main_navigation.dart';
@@ -52,14 +53,14 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'NotiOneTwo',
       debugShowCheckedModeBanner: false,  // ปิด debug banner ปกติ
-      builder: (context, child) {
-        return Banner(
-          message: 'SYS-TEST',
-          location: BannerLocation.bottomEnd,
-          color: Colors.grey,
-          child: child!,
-        );
-      },
+      // builder: (context, child) {
+      //   return Banner(
+      //     message: 'SYS-TEST',
+      //     location: BannerLocation.bottomEnd,
+      //     color: Colors.grey,
+      //     child: child!,
+      //   );
+      // },
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF004B93)),
         useMaterial3: true,

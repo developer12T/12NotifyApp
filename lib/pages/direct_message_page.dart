@@ -45,7 +45,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'กำลังพัฒนา',
+              'ยังไม่พร้อมใช้งาน',
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,

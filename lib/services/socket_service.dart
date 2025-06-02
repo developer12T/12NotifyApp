@@ -15,43 +15,173 @@ class SocketService {
 
   SocketService._internal() {
     print('SocketService: Initializing socket with URL: ${dotenv.env['API_BASE_URL']}');
-    socket = IO.io(dotenv.env['API_BASE_URL'], <String, dynamic>{
+    socket = IO.io('http://192.168.2.81:80', <String, dynamic>{
       'transports': ['websocket'],
-      'autoConnect': false,
-      'reconnection': true,
-      'reconnectionAttempts': 5,
-      'reconnectionDelay': 1000,
-      'timeout': 10000,
+      'path': '/chatio/socket.io/',  // ต้องเปิด comment นี้
+      'reconnection': false,
+      'forceNew': true
     });
 
-    // Add socket event listeners for debugging
-    socket.onConnect((_) {
-      print('SocketService: Socket connected successfully');
+    print('SocketService: Socket instance created with options:');
+    print('- URL: http://192.168.2.81:80');
+    print('- Path: /socket.io');
+    print('- Transport: websocket');
+    print('- Reconnection: false');
+
+    // Add explicit connect call
+    print('SocketService: Attempting to connect socket...');
+    socket?.connect();
+    print('SocketService: Socket connect() called');
+
+    // Setup socket event listeners
+    socket?.onConnect((_) {
+      print('=== SocketService: Socket Connected Successfully ===');
+      print('Socket ID: ${socket?.id}');
+      print('Socket connected: ${socket?.connected}');
+      print('Socket auth: ${socket?.auth}');
+      print('Socket nsp: ${socket?.nsp}');
+
+      // Setup message listeners after connection
+      _setupMessageListeners();
     });
 
-    socket.onDisconnect((_) {
-      print('SocketService: Socket disconnected');
+    socket?.onConnectError((error) {
+      print('=== SocketService: Socket Connect Error ===');
+      print('Error: $error');
+      print('Socket nsp: ${socket?.nsp}');
+      print('Socket connected: ${socket?.connected}');
+      print('Socket ID: ${socket?.id}');
+      print('Base URL: http://192.168.2.81:80');
     });
 
-    socket.onError((error) {
-      print('SocketService: Socket error: $error');
+    socket?.onDisconnect((_) {
+      print('=== SocketService: Socket Disconnected ===');
+      print('Socket ID: ${socket?.id}');
+      print('Socket connected: ${socket?.connected}');
     });
 
-    socket.onConnectError((error) {
-      print('SocketService: Socket connection error: $error');
+    socket?.onError((error) {
+      print('=== SocketService: Socket Error ===');
+      print('Error: $error');
+      print('Socket ID: ${socket?.id}');
+      print('Socket connected: ${socket?.connected}');
+    });
+  }
+
+  void _setupMessageListeners() {
+    print('=== SocketService: Setting up Message Listeners ===');
+    
+    // Remove existing listeners first
+    socket?.off('newMessage');
+    socket?.off('messageBroadcast');
+    socket?.off('messageSent');
+    socket?.off('messageReceived');
+    socket?.off('roomJoined');
+    socket?.off('roomLeft');
+    socket?.off('unreadCountUpdate');
+
+    // Listen for message broadcasts (main event from server)
+    socket?.on('messageBroadcast', (data) {
+      print('=== SocketService: Message Broadcast Received ===');
+      print('Raw data: $data');
+      
+      try {
+        // Handle case where data is a list
+        dynamic messageData;
+        if (data is List) {
+          print('Data is a List, length: ${data.length}');
+          if (data.isEmpty) {
+            print('Empty data list received');
+            return;
+          }
+          messageData = data[0];
+        } else if (data is Map) {
+          messageData = data;
+        } else {
+          print('Invalid message data format: ${data.runtimeType}');
+          return;
+        }
+
+        print('Processed message data:');
+        print('- Room ID: ${messageData['room']}');
+        print('- Message: ${messageData['message']}');
+        print('- Sender: ${messageData['sender']}');
+        print('- Timestamp: ${messageData['timestamp']}');
+        print('- Is Read: ${messageData['isRead']}');
+        print('- Is Reply: ${messageData['isReply']}');
+        print('- Reply To: ${messageData['replyTo']}');
+        print('- Reply Message: ${messageData['replyToMessage']}');
+
+        // Emit local event for UI update
+        socket?.emit('messageReceived', messageData);
+      } catch (e) {
+        print('Error processing broadcast message: $e');
+        print('Stack trace: ${StackTrace.current}');
+      }
     });
 
-    socket.onReconnect((_) {
-      print('SocketService: Socket reconnected');
+    // Listen for message sent confirmations
+    socket?.on('messageSent', (data) {
+      print('=== SocketService: Message Sent Confirmation ===');
+      print('Data: $data');
     });
 
-    socket.onReconnectAttempt((attemptNumber) {
-      print('SocketService: Socket reconnection attempt: $attemptNumber');
+    // Listen for room events
+    socket?.on('roomJoined', (data) {
+      print('=== SocketService: Room Joined ===');
+      print('Data: $data');
+      
+      // Subscribe to room messages after joining
+      if (data is Map && data['roomId'] != null) {
+        print('Subscribing to room messages: ${data['roomId']}');
+        socket?.emit('subscribeRoom', {'roomId': data['roomId']});
+      }
     });
 
-    socket.onReconnectError((error) {
-      print('SocketService: Socket reconnection error: $error');
+    socket?.on('roomLeft', (data) {
+      print('=== SocketService: Room Left ===');
+      print('Data: $data');
+      
+      // Unsubscribe from room messages after leaving
+      if (data is Map && data['roomId'] != null) {
+        print('Unsubscribing from room messages: ${data['roomId']}');
+        socket?.emit('unsubscribeRoom', {'roomId': data['roomId']});
+      }
     });
+
+    // Listen for unread count updates
+    socket?.on('unreadCountUpdate', (data) {
+      print('=== SocketService: Unread Count Update ===');
+      print('Data: $data');
+    });
+
+    print('=== SocketService: Message Listeners Setup Complete ===');
+  }
+
+  // Add method to manually setup listeners
+  void setupMessageListeners() {
+    print('SocketService: Manually setting up message listeners');
+    _setupMessageListeners();
+  }
+
+  // Add method to emit test message
+  void sendTestMessage(String roomId, String message) {
+    print('=== SocketService: Sending Test Message ===');
+    print('Room ID: $roomId');
+    print('Message: $message');
+    print('Socket ID: ${socket?.id}');
+    print('Socket connected: ${socket?.connected}');
+
+    if (socket?.connected == true) {
+      socket?.emit('sendMessage', {
+        'roomId': roomId,
+        'message': message,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      print('Test message sent');
+    } else {
+      print('Cannot send test message: Socket not connected');
+    }
   }
 
   Future<void> connect() async {
@@ -102,5 +232,35 @@ class SocketService {
   void offNewAnnouncement() {
     print('Removing newAnnouncement listener');
     socket.off('newAnnouncement');
+  }
+
+  // Add method to subscribe to room messages
+  void subscribeToRoom(String roomId) {
+    print('=== SocketService: Subscribing to Room ===');
+    print('Room ID: $roomId');
+    print('Socket ID: ${socket?.id}');
+    print('Socket connected: ${socket?.connected}');
+
+    if (socket?.connected == true) {
+      socket?.emit('subscribeRoom', {'roomId': roomId});
+      print('Subscribe request sent for room: $roomId');
+    } else {
+      print('Cannot subscribe: Socket not connected');
+    }
+  }
+
+  // Add method to unsubscribe from room messages
+  void unsubscribeFromRoom(String roomId) {
+    print('=== SocketService: Unsubscribing from Room ===');
+    print('Room ID: $roomId');
+    print('Socket ID: ${socket?.id}');
+    print('Socket connected: ${socket?.connected}');
+
+    if (socket?.connected == true) {
+      socket?.emit('unsubscribeRoom', {'roomId': roomId});
+      print('Unsubscribe request sent for room: $roomId');
+    } else {
+      print('Cannot unsubscribe: Socket not connected');
+    }
   }
 } 
