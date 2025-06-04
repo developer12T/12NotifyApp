@@ -15,7 +15,7 @@ class SocketService {
 
   SocketService._internal() {
     print('SocketService: Initializing socket with URL: ${dotenv.env['API_BASE_URL']}');
-    socket = IO.io('http://192.168.2.81:80', <String, dynamic>{
+    socket = IO.io('http://192.168.2.81', <String, dynamic>{
       'transports': ['websocket'],
       'path': '/chatio/socket.io/',  // ต้องเปิด comment นี้
       'reconnection': false,

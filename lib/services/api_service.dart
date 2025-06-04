@@ -72,7 +72,7 @@ class ApiService {
     }
 
     try {
-      socket = IO.io('http://192.168.2.81:80', <String, dynamic>{
+      socket = IO.io('http://192.168.2.81', <String, dynamic>{
      'transports': ['websocket'],
       'path': '/chatio/socket.io/',  // ต้องเปิด comment นี้
       'reconnection': false,
@@ -367,7 +367,7 @@ class ApiService {
         Uri.parse('$baseUrl/api/messages/send'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'roomId': [roomId],
+          'roomId': roomId,
           'message': [message],
           'employeeId': employeeId,
           'isAdminNotification': isAdminNotification,

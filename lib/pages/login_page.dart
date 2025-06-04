@@ -65,7 +65,7 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         final error = jsonDecode(response.body);
         setState(() {
-          _errorMessage = error['message'] ?? 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
+          _errorMessage = error['message']+ ': ' + response.statusCode ?? 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
         });
       }
     } catch (e) {

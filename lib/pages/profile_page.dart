@@ -22,9 +22,16 @@ class _ProfilePageState extends State<ProfilePage> {
     final prefs = await SharedPreferences.getInstance();
     final userJson = prefs.getString('user');
     if (userJson != null) {
-      setState(() {
-        _userData = jsonDecode(userJson);
-      });
+      try {
+        setState(() {
+          _userData = jsonDecode(userJson);
+        });
+      } catch (e) {
+        print('Error decoding userJson: $e');
+        setState(() {
+          _userData = null;
+        });
+      }
     }
   }
 
@@ -86,9 +93,9 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                           child: Padding(
                             padding: const EdgeInsets.all(3.0),
-                            child: _userData!['imgUrl'] != null
+                            child: (_userData?['imgUrl'] != null && _userData?['imgUrl'] is String && (_userData?['imgUrl'] as String).isNotEmpty)
                                 ? Opacity(
-                                    opacity: 1, // 100% opacity for the image
+                                    opacity: 1,
                                     child: ClipOval(
                                       child: Image.network(
                                         _userData!['imgUrl'],
@@ -107,7 +114,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     ),
                                   )
                                 : Opacity(
-                                    opacity: 1, // 100% opacity for the default image
+                                    opacity: 1,
                                     child: ClipOval(
                                       child: Image.asset(
                                         'assets/images/no-photo-icon-22.png',

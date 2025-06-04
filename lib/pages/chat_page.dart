@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'web_view_page.dart';
 import 'dart:io' show Platform;
+import 'package:flutter/services.dart';
 
 class ChatPage extends StatefulWidget {
   final String roomId;
@@ -607,7 +608,14 @@ class _ChatPageState extends State<ChatPage> {
         }
 
         // ตรวจสอบว่าเป็นข้อความสำหรับห้องนี้หรือไม่
-        if (messageData['room']?.toString() != widget.roomId) {
+        final roomField = messageData['room'] ?? messageData['roomId'];
+        bool isForThisRoom = false;
+        if (roomField is String) {
+          isForThisRoom = roomField == widget.roomId;
+        } else if (roomField is List && roomField.isNotEmpty) {
+          isForThisRoom = roomField.contains(widget.roomId) || roomField.first == widget.roomId;
+        }
+        if (!isForThisRoom) {
           return;
         }
 
@@ -715,7 +723,7 @@ final newMessage = {
 setState(() {
   // เพิ่มข้อความใหม่ที่ตำแหน่งแรกเสมอ
   messages.insert(0, newMessage);
-
+   print('messages length: ${messages.length}');
   // เลื่อนไปที่ข้อความใหม่ทันที
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (_scrollController.hasClients) {
@@ -1926,23 +1934,42 @@ setState(() {
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(24),
                     ),
-                    child: TextField(
-                      controller: _messageController,
-                      focusNode: _messageFocusNode,
-                      maxLines: null,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      style: const TextStyle(fontSize: 15),
-                      decoration: InputDecoration(
-                        hintText:
-                            _replyingToMessage != null
-                                ? 'พิมพ์ข้อความตอบกลับ...'
-                                : 'พิมพ์ข้อความ...',
-                        hintStyle: TextStyle(color: Colors.grey[500]),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
+                    child: RawKeyboardListener(
+                      focusNode: FocusNode(),
+                      onKey: (RawKeyEvent event) {
+                        if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                          if (event.isShiftPressed) {
+                            // Insert new line
+                            final controller = _messageController;
+                            final text = controller.text;
+                            final selection = controller.selection;
+                            final newText = text.replaceRange(selection.start, selection.end, '');
+                            controller.text = newText;
+                            controller.selection = TextSelection.collapsed(offset: selection.start + 1);
+                          } else {
+                            // ส่งข้อความ
+                            _sendMessage();
+                          }
+                        }
+                      },
+                      child: TextField(
+                        controller: _messageController,
+                        focusNode: _messageFocusNode,
+                        maxLines: null,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        style: const TextStyle(fontSize: 15),
+                        decoration: InputDecoration(
+                          hintText:
+                              _replyingToMessage != null
+                                  ? 'พิมพ์ข้อความตอบกลับ...'
+                                  : 'พิมพ์ข้อความ...',
+                          hintStyle: TextStyle(color: Colors.grey[500]),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                     ),

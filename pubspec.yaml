@@ -51,6 +51,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  msix: ^3.16.7
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -101,3 +102,32 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+msix_config:
+  display_name: 12Chat
+  publisher_display_name: oneTwTrading
+  identity_name: com.onetwtrading.12chat
+  msix_version: 1.0.0.0
+  description: ทดสอบการใช้งาน UAT
+  
+  # ไอคอน (ถ้ามี)
+  logo_path: assets/icon/app_icon.ico
+  
+  # สิทธิ์ที่แอปต้องการ
+  capabilities: 'internetClient,location,microphone,webcam'
+  
+  # การลงนาม certificate (ปิดการใช้งาน)
+  install_certificate: false
+  certificate_path: null
+  certificate_password: null
+  
+  # สร้างแบบไม่ต้อง store-ready
+  store: false
+  
+  # ข้อมูลเพิ่มเติม
+  publisher: CN=YourCompany
+  languages: th-TH,en-US
+  
+  # การติดตั้ง
+  architecture: x64
+  file_extension: .12chat
