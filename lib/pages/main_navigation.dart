@@ -4,7 +4,7 @@ import 'dart:convert';
 // import 'package:package_info_plus/package_info_plus.dart';  // Commented out as we use hardcoded version
 import 'announcements_page.dart';
 import 'room_page.dart';
-import 'direct_message_page.dart';
+import 'direct_message_list_page.dart';
 import 'profile_page.dart';
 import '../services/api_service.dart';
 import '../components/side_navigation.dart';
@@ -222,7 +222,10 @@ class _MainNavigationState extends State<MainNavigation> {
               children: [
                 AnnouncementsPage(key: _pageKeys[0]),
                 RoomPage(key: _pageKeys[1], apiService: _apiService),
-                DirectMessagePage(key: _pageKeys[2], recipientId: 'EMP002', recipientName: 'คุณลูกค้า'),
+                DirectMessageListPage(
+                  key: _pageKeys[2],
+                  apiService: _apiService,
+                ),
                 ProfilePage(key: _pageKeys[3]),
               ],
             ),

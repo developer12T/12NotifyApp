@@ -6,12 +6,13 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 class ApiService {
   IO.Socket? socket; // Make socket nullable
   String? userId;
   static String get baseUrl =>
-      'http://192.168.2.81/12chat';
+      'http://127.0.0.1:3000';
   String? _token;
   bool _isInitialized = false; // Add initialization flag
 
@@ -45,10 +46,12 @@ class ApiService {
       final userJson = prefs.getString('user');
       if (userJson != null) {
         final userData = jsonDecode(userJson);
+        print('getUserId: ${userData['employeeID']}');
         userId = userData['employeeID']?.toString();
         print('User ID loaded successfully: $userId');
         print('Full user data: $userData');
       } else {
+        print('getUserId: null');
         print('No user data found in SharedPreferences');
       }
     } catch (e) {
@@ -72,9 +75,9 @@ class ApiService {
     }
 
     try {
-      socket = IO.io('http://192.168.2.81', <String, dynamic>{
+      socket = IO.io(baseUrl, <String, dynamic>{
      'transports': ['websocket'],
-      'path': '/chatio/socket.io/',  // ต้องเปิด comment นี้
+      'path': '/socket.io/',
       'reconnection': false,
       'forceNew': true
     });
@@ -713,6 +716,66 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> uploadFile(
+    PlatformFile file,
+    String roomId,
+    String employeeId, {
+    String? message,
+    String? replyToId,
+    Map<String, dynamic>? replyToMessage,
+  }) async {
+    try {
+      print('=== Uploading File ===');
+      print('Room ID: $roomId');
+      print('Employee ID: $employeeId');
+      print('File name: ${file.name}');
+      print('File size: ${file.size}');
+      print('File extension: ${file.extension}');
+      print('Optional message: $message');
+      print('Reply to ID: $replyToId');
+
+      // Create multipart request
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/upload-file'),
+      );
+
+      // Add file to request
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          file.path!,
+          filename: file.name,
+        ),
+      );
+
+      // Add other fields
+      request.fields.addAll({
+        'roomId': roomId,
+        'employeeId': employeeId,
+        if (message != null && message.isNotEmpty) 'message': message,
+        if (replyToId != null) 'replyToId': replyToId,
+        if (replyToMessage != null) 'replyToMessage': jsonEncode(replyToMessage),
+      });
+
+      // Send request
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print('File upload response: ${data['data']}');
+        return data['data'];
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['message'] ?? 'ไม่สามารถอัพโหลดไฟล์ได้');
+      }
+    } catch (e) {
+      print('Error uploading file: $e');
+      rethrow;
+    }
+  }
+
   void dispose() {
     print('Disposing socket connection');
     try {
@@ -759,6 +822,196 @@ class ApiService {
     } catch (e) {
       print('Error fetching user info: $e');
       return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> sendDirectMessage({
+    required String recipientId,
+    required String message,
+    String? replyToId,
+    Map<String, dynamic>? replyToMessage,
+  }) async {
+    await ensureInitialized();
+    print('\n=== Sending Direct Message ===');
+    print('Recipient ID: $recipientId');
+    print('Message: $message');
+    print('Reply To ID: $replyToId');
+    print('Reply Message: $replyToMessage');
+    print('Socket connected: ${socket?.connected}');
+    print('Socket ID: ${socket?.id}');
+
+    try {
+      if (socket?.connected != true) {
+        print('Socket not connected, attempting to reconnect...');
+        await _initSocket();
+        // Wait for connection
+        int attempts = 0;
+        while (socket?.connected != true && attempts < 5) {
+          await Future.delayed(const Duration(seconds: 1));
+          attempts++;
+        }
+        if (socket?.connected != true) {
+          throw Exception('Failed to establish socket connection');
+        }
+      }
+
+      // Get current user ID
+      final senderId = await getUserId();
+      if (senderId == null) {
+        throw Exception('User ID not found');
+      }
+
+      // Create conversation ID
+      final conversationId = '${senderId}_$recipientId';
+
+      // Emit direct message through socket
+      socket?.emit('sendDirectMessage', {
+        'employeeId': senderId,
+        'recipientId': recipientId,
+        'message': message,
+        'replyToId': replyToId,
+        'replyToMessage': replyToMessage,
+        'conversationId': conversationId,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+
+      // Also send through HTTP for persistence
+      print('Sending direct message body: ${jsonEncode({
+        'employeeId': senderId,
+        'recipientId': recipientId,
+        'message': message,
+        'replyToId': replyToId,
+        'replyToMessage': replyToMessage,
+      })}');
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/direct-messages/send'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'employeeId': senderId,
+          'recipientId': recipientId,
+          'message': message,
+          'replyToId': replyToId,
+          'replyToMessage': replyToMessage,
+        }),
+      );
+
+      print('Direct message send response: ${response.body}');
+
+      final responseData = jsonDecode(response.body);
+      if (response.statusCode == 201 && responseData['success'] == true && responseData['data'] != null) {
+        return Map<String, dynamic>.from(responseData);
+      } else {
+        // Only throw if not success or no data
+        throw Exception(responseData['message'] ?? responseData['error'] ?? 'Failed to send direct message');
+      }
+    } catch (e) {
+      print('=== Error Sending Direct Message ===');
+      print('Error details: $e');
+      print('Stack trace: ${StackTrace.current}');
+      rethrow;
+    }
+  }
+
+  Future<void> markDirectMessagesAsRead(List<String> messageIds, String conversationId) async {
+    await ensureInitialized();
+    print('\n=== Marking Direct Messages as Read ===');
+    print('Message IDs: $messageIds');
+    print('Conversation ID: $conversationId');
+    print('Socket connected: ${socket?.connected}');
+    print('Socket ID: ${socket?.id}');
+
+    try {
+      final readerId = await getUserId();
+      if (readerId == null) {
+        throw Exception('User ID not found');
+      }
+
+      if (socket?.connected != true) {
+        print('Socket not connected, attempting to reconnect...');
+        await _initSocket();
+      }
+
+      // Emit read status through socket
+      socket?.emit('markDirectMessagesRead', {
+        'messageIds': messageIds,
+        'readerId': readerId,
+        'conversationId': conversationId,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+
+      // Also update through HTTP for persistence
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/direct-messages/read'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'messageIds': messageIds,
+          'readerId': readerId,
+          'conversationId': conversationId,
+        }),
+      );
+
+      print('Mark as read response: ${response.body}');
+
+      if (response.statusCode != 200) {
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['error'] ?? 'Failed to mark messages as read');
+      }
+    } catch (e) {
+      print('=== Error Marking Direct Messages as Read ===');
+      print('Error details: $e');
+      print('Stack trace: ${StackTrace.current}');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteDirectMessage(String messageId, String conversationId) async {
+    await ensureInitialized();
+    print('\n=== Deleting Direct Message ===');
+    print('Message ID: $messageId');
+    print('Conversation ID: $conversationId');
+    print('Socket connected: ${socket?.connected}');
+    print('Socket ID: ${socket?.id}');
+
+    try {
+      final senderId = await getUserId();
+      if (senderId == null) {
+        throw Exception('User ID not found');
+      }
+
+      if (socket?.connected != true) {
+        print('Socket not connected, attempting to reconnect...');
+        await _initSocket();
+      }
+
+      // Emit deletion through socket
+      socket?.emit('deleteDirectMessage', {
+        'messageId': messageId,
+        'senderId': senderId,
+        'conversationId': conversationId,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+
+      // Also delete through HTTP for persistence
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/direct-messages/$messageId'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'senderId': senderId,
+          'conversationId': conversationId,
+        }),
+      );
+
+      print('Delete message response: ${response.body}');
+
+      if (response.statusCode != 200) {
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['error'] ?? 'Failed to delete message');
+      }
+    } catch (e) {
+      print('=== Error Deleting Direct Message ===');
+      print('Error details: $e');
+      print('Stack trace: ${StackTrace.current}');
+      rethrow;
     }
   }
 }

@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart'; // Add this import
 import '../services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'add_members_page.dart';
@@ -13,6 +14,7 @@ import 'dart:async';
 import 'web_view_page.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class ChatPage extends StatefulWidget {
   final String roomId;
@@ -38,6 +40,7 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   File? _selectedImage;
+  PlatformFile? _selectedFile; // Add this for file selection
   final ImagePicker _picker = ImagePicker();
 
   List<dynamic> messages = [];
@@ -1336,6 +1339,470 @@ setState(() {
     );
   }
 
+  // Add file picker method
+  Future<void> _pickAndValidateFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx'],
+        allowMultiple: false,
+      );
+
+      if (result != null) {
+        final file = result.files.first;
+        
+        // Validate file size (5MB limit)
+        if (file.size > 5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('ขนาดไฟล์ต้องไม่เกิน 5MB'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+          return;
+        }
+
+        // Validate file type
+        final allowedTypes = ['pdf', 'doc', 'docx', 'xls', 'xlsx'];
+        final fileExtension = file.extension?.toLowerCase();
+        
+        if (fileExtension == null || !allowedTypes.contains(fileExtension)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('กรุณาเลือกไฟล์ PDF, Word หรือ Excel เท่านั้น'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+          return;
+        }
+
+        setState(() {
+          _selectedFile = file;
+        });
+      }
+    } catch (e) {
+      print('Error picking file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการเลือกไฟล์: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  // Add file upload method
+  Future<void> _sendFile() async {
+    if (_selectedFile == null || currentUserId == null) return;
+
+    setState(() {
+      isSending = true;
+    });
+
+    try {
+      print('=== Sending File ===');
+      print('Room ID: ${widget.roomId}');
+      print('Current User ID: $currentUserId');
+      print('File name: ${_selectedFile!.name}');
+      print('File size: ${_selectedFile!.size}');
+      print('File extension: ${_selectedFile!.extension}');
+      print('Reply to: ${_replyingToMessage?['_id']}');
+
+      // Create temporary message
+      final tempMessage = {
+        '_id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'room': widget.roomId,
+        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
+        'timestamp': DateTime.now().toIso8601String(),
+        'isRead': false,
+        'isSending': true,
+        'isFile': true,
+        'fileName': _selectedFile!.name,
+        'fileType': _selectedFile!.extension,
+        'isReply': _replyingToMessage != null,
+        'replyToId': _replyingToMessage?['_id'],
+        'replyToMessage': _replyingToMessage != null
+            ? {
+                'message': _replyingToMessage!['message'],
+                'sender': _replyingToMessage!['sender'],
+                'isImage': _replyingToMessage!['isImage'] ?? false,
+                'imageUrl': _replyingToMessage!['imageUrl'],
+              }
+            : null,
+      };
+      if (_messageController.text.trim().isNotEmpty) {
+        tempMessage['message'] = _messageController.text.trim();
+      }
+
+      // Add temporary message to list
+      setState(() {
+        messages.insert(0, tempMessage);
+      });
+
+      // Upload file with optional message
+      final response = await widget.apiService.uploadFile(
+        _selectedFile!,
+        widget.roomId,
+        currentUserId!,
+        message: _messageController.text.trim().isNotEmpty ? _messageController.text.trim() : null,
+        replyToId: _replyingToMessage?['_id'],
+        replyToMessage: _replyingToMessage != null
+            ? {
+                'message': _replyingToMessage!['message'],
+                'sender': _replyingToMessage!['sender'],
+                'isImage': _replyingToMessage!['isImage'] ?? false,
+                'imageUrl': _replyingToMessage!['imageUrl'],
+              }
+            : null,
+      );
+
+      // Update temporary message with actual data
+      setState(() {
+        final index = messages.indexWhere((m) => m['isSending'] == true);
+        if (index != -1) {
+          final updated = {
+            ...messages[index],
+            '_id': response['_id'],
+            'sender': response['sender'],
+            'timestamp': response['timestamp'],
+            'isRead': response['isRead'] ?? false,
+            'isSending': false,
+            'isFile': true,
+            'fileUrl': response['fileUrl'],
+            'fileName': response['fileName'],
+            'fileType': response['fileType'],
+            'isReply': response['isReply'] ?? false,
+            'replyToId': response['replyToId'],
+            'replyToMessage': response['replyToMessage'],
+          };
+          if (response['message'] != null && response['message'].toString().trim().isNotEmpty) {
+            updated['message'] = response['message'];
+          } else {
+            updated.remove('message');
+          }
+          messages[index] = updated;
+        }
+      });
+
+      // Reset file selection and reply
+      setState(() {
+        _selectedFile = null;
+        _clearReply();
+      });
+      _messageController.clear();
+
+    } catch (e) {
+      print('Error sending file: $e');
+      String errorMessage = 'ไม่สามารถส่งไฟล์ได้';
+
+      if (e.toString().contains('File type not allowed')) {
+        errorMessage = 'กรุณาเลือกไฟล์ PDF, Word หรือ Excel เท่านั้น';
+      } else if (e.toString().contains('File too large')) {
+        errorMessage = 'ขนาดไฟล์ต้องไม่เกิน 5MB';
+      }
+
+      // Remove temporary message on error
+      setState(() {
+        messages.removeWhere((m) => m['isSending'] == true);
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'ลองอีกครั้ง',
+              textColor: Colors.white,
+              onPressed: () {
+                if (_selectedFile != null) {
+                  _sendFile();
+                }
+              },
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          isSending = false;
+        });
+      }
+    }
+  }
+
+  // Add file preview widget
+  Widget _buildSelectedFilePreview() {
+    if (_selectedFile == null) return const SizedBox.shrink();
+
+    // Function to truncate filename
+    String truncateFilename(String filename, int maxLength) {
+      if (filename.length <= maxLength) return filename;
+      final extension = filename.split('.').last;
+      final nameWithoutExt = filename.substring(0, filename.length - extension.length - 1);
+      final truncatedName = nameWithoutExt.substring(0, maxLength - extension.length - 4) + '...';
+      return '$truncatedName.$extension';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
+      alignment: Alignment.centerLeft,
+      child: Stack(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _getFileIcon(_selectedFile!.extension),
+                  color: _getFileColor(_selectedFile!.extension),
+                  size: 32,
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        truncateFilename(_selectedFile!.name, 30),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      Text(
+                        _formatFileSize(_selectedFile!.size),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 16),
+                onPressed: () {
+                  setState(() {
+                    _selectedFile = null;
+                  });
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper methods for file icons and colors
+  IconData _getFileIcon(String? extension) {
+    switch (extension?.toLowerCase()) {
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      case 'doc':
+      case 'docx':
+        return Icons.description;
+      case 'xls':
+      case 'xlsx':
+        return Icons.table_chart;
+      default:
+        return Icons.insert_drive_file;
+    }
+  }
+
+  Color _getFileColor(String? extension) {
+    switch (extension?.toLowerCase()) {
+      case 'pdf':
+        return Colors.red;
+      case 'doc':
+      case 'docx':
+        return Colors.blue;
+      case 'xls':
+      case 'xlsx':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  // Update message content builder to handle files
+  Widget _buildMessageContent(Map<String, dynamic> message, bool isCurrentUser) {
+    final bool hasImage = message['isImage'] == true && message['imageUrl'] != null;
+    final bool hasFile = message['isFile'] == true && message['fileUrl'] != null;
+    final String? text = message['message'];
+    final bool isReply = message['isReply'] == true;
+    final Map<String, dynamic>? replyToMessage = message['replyToMessage'];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isReply && replyToMessage != null) ...[
+          _buildReplyWidget(replyToMessage),
+          const SizedBox(height: 6),
+        ],
+        if (hasImage) _buildMessageImage(message['imageUrl'], isCurrentUser),
+        if (hasFile) _buildMessageFile(message, isCurrentUser),
+        if (text != null && text.trim().isNotEmpty) ...[
+          if (hasImage || hasFile) const SizedBox(height: 6),
+          ..._parseMessageWithUrls(text).map((part) {
+            if (part['type'] == 'text') {
+              return Text(
+                part['content'],
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isCurrentUser ? Colors.black87 : Colors.black87,
+                ),
+              );
+            } else {
+              final bool isYellowButton =
+                  part['buttonColor'] == const Color.fromARGB(255, 255, 230, 0);
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: ElevatedButton(
+                  onPressed: () => _launchUrl(
+                    part['content'],
+                    buttonText: part['buttonText'], // ส่ง buttonText ไปด้วย
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        part['buttonColor'] ?? const Color(0xFF3F474E),
+                    foregroundColor:
+                        isYellowButton ? Colors.black : Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 1,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.open_in_new,
+                        size: 14,
+                        color:
+                            isYellowButton
+                                ? Colors.black.withOpacity(0.9)
+                                : Colors.white.withOpacity(0.9),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        part['buttonText'],
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }).toList(),
+        ],
+      ],
+    );
+  }
+
+  // Add file message builder
+  Widget _buildMessageFile(Map<String, dynamic> message, bool isCurrentUser) {
+    final fileUrl = message['fileUrl'];
+    final fileName = message['fileName'];
+    final fileType = message['fileType'];
+
+    return GestureDetector(
+      onTap: () => _launchUrl(fileUrl),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _getFileIcon(fileType),
+              color: _getFileColor(fileType),
+              size: 32,
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  fileName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Row(
+                  children: [
+                    Text(
+                      'คลิกเพื่อเปิดไฟล์',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.open_in_new,
+                      size: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1880,6 +2347,8 @@ setState(() {
                       ],
                     ),
           ),
+          // Move file preview here, before the message input
+          if (_selectedFile != null) _buildSelectedFilePreview(),
           if (_selectedImage != null) _buildSelectedImagePreview(),
           if (_replyingToMessage != null) 
             Padding(
@@ -1902,10 +2371,9 @@ setState(() {
               children: [
                 Container(
                   decoration: BoxDecoration(
-                    color:
-                        _selectedImage != null
-                            ? colorScheme.primary.withOpacity(0.1)
-                            : null,
+                    color: _selectedImage != null
+                        ? colorScheme.primary.withOpacity(0.1)
+                        : null,
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
@@ -1913,18 +2381,35 @@ setState(() {
                       _selectedImage != null
                           ? Icons.image
                           : Icons.photo_outlined,
-                      color:
-                          _selectedImage != null
-                              ? colorScheme.primary
-                              : Colors.grey[600],
+                      color: _selectedImage != null
+                          ? colorScheme.primary
+                          : Colors.grey[600],
                       size: 28,
                     ),
-                    tooltip:
-                        _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
-                    onPressed:
-                        _selectedImage != null
-                            ? _sendImage
-                            : _pickAndValidateImage,
+                    tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
+                    onPressed: _selectedImage != null ? _sendImage : _pickAndValidateImage,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Container(
+                  decoration: BoxDecoration(
+                    color: _selectedFile != null
+                        ? colorScheme.primary.withOpacity(0.1)
+                        : null,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      _selectedFile != null
+                          ? Icons.attach_file
+                          : Icons.attach_file_outlined,
+                      color: _selectedFile != null
+                          ? colorScheme.primary
+                          : Colors.grey[600],
+                      size: 28,
+                    ),
+                    tooltip: _selectedFile != null ? 'ส่งไฟล์' : 'เลือกไฟล์',
+                    onPressed: _selectedFile != null ? _sendFile : _pickAndValidateFile,
                   ),
                 ),
                 const SizedBox(width: 2),
@@ -1977,40 +2462,46 @@ setState(() {
                 ),
                 const SizedBox(width: 12),
                 if (_messageController.text.trim().isNotEmpty ||
-                    _selectedImage != null)
+                    _selectedImage != null ||
+                    _selectedFile != null)
                   Container(
                     decoration: BoxDecoration(
                       color: colorScheme.primary,
                       shape: BoxShape.circle,
                     ),
                     child: IconButton(
-                      onPressed:
-                          isSending
-                              ? null
-                              : _selectedImage != null
+                      onPressed: isSending
+                          ? null
+                          : _selectedImage != null
                               ? _sendImage
-                              : _sendMessage,
-                      icon:
-                          isSending
-                              ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
+                              : _selectedFile != null
+                                  ? _sendFile
+                                  : _sendMessage,
+                      icon: isSending
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
                                 ),
-                              )
-                              : Icon(
-                                _selectedImage != null
-                                    ? Icons.send_rounded
-                                    : Icons.send_rounded,
-                                size: 20,
                               ),
+                            )
+                          : Icon(
+                              _selectedImage != null
+                                  ? Icons.send_rounded
+                                  : _selectedFile != null
+                                      ? Icons.send_rounded
+                                      : Icons.send_rounded,
+                              size: 20,
+                            ),
                       color: Colors.white,
-                      tooltip:
-                          _selectedImage != null ? 'ส่งรูปภาพ' : 'ส่งข้อความ',
+                      tooltip: _selectedImage != null
+                          ? 'ส่งรูปภาพ'
+                          : _selectedFile != null
+                              ? 'ส่งไฟล์'
+                              : 'ส่งข้อความ',
                     ),
                   ),
               ],
@@ -2367,93 +2858,6 @@ setState(() {
         );
       }
     }
-  }
-
-  // Update _buildMessageContent to use the button color
-  Widget _buildMessageContent(
-    Map<String, dynamic> message,
-    bool isCurrentUser,
-  ) {
-    final bool hasImage =
-        message['isImage'] == true && message['imageUrl'] != null;
-    final String? text = message['message'];
-    final bool isReply = message['isReply'] == true;
-    final Map<String, dynamic>? replyToMessage = message['replyToMessage'];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // แสดง reply widget ถ้าเป็นข้อความตอบกลับ
-        if (isReply && replyToMessage != null) ...[
-          _buildReplyWidget(replyToMessage),
-          const SizedBox(height: 6),
-        ],
-
-        // แสดงรูปภาพ
-        if (hasImage) _buildMessageImage(message['imageUrl'], isCurrentUser),
-        if (text != null && text.trim().isNotEmpty) ...[
-          if (hasImage) const SizedBox(height: 6),
-          ..._parseMessageWithUrls(text).map((part) {
-            if (part['type'] == 'text') {
-              return Text(
-                part['content'],
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isCurrentUser ? Colors.black87 : Colors.black87,
-                ),
-              );
-            } else {
-              final bool isYellowButton =
-                  part['buttonColor'] == const Color.fromARGB(255, 255, 230, 0);
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: ElevatedButton(
-                  onPressed: () => _launchUrl(
-                    part['content'],
-                    buttonText: part['buttonText'], // ส่ง buttonText ไปด้วย
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        part['buttonColor'] ?? const Color(0xFF3F474E),
-                    foregroundColor:
-                        isYellowButton ? Colors.black : Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 1,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.open_in_new,
-                        size: 14,
-                        color:
-                            isYellowButton
-                                ? Colors.black.withOpacity(0.9)
-                                : Colors.white.withOpacity(0.9),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        part['buttonText'],
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-          }).toList(),
-        ],
-      ],
-    );
   }
 
   void _showMessageMenu(Map<String, dynamic> message, bool isCurrentUser) {
