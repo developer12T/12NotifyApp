@@ -120,69 +120,18 @@ class _ChatPageState extends State<ChatPage> {
     if (_messageController.text.trim().isEmpty || currentUserId == null) return;
 
     final messageText = _messageController.text.trim();
-    final tempMessageId = DateTime.now().millisecondsSinceEpoch.toString();
-
-    // ตรวจสอบว่ากำลังส่งข้อความนี้อยู่หรือไม่
-    if (_sendingMessageIds.contains(tempMessageId)) {
-      print('⚠️ Message is already being sent');
-      return;
-    }
 
     setState(() {
       isSending = true;
-      _sendingMessageIds.add(tempMessageId);
     });
 
     try {
-      // ตรวจสอบว่ามีข้อความซ้ำหรือไม่
-      final existingMessage = messages.firstWhere(
-        (m) =>
-            m['message'] == messageText &&
-            m['sender']['employeeID'] == currentUserId &&
-            DateTime.parse(
-                  m['timestamp'],
-                ).difference(DateTime.now()).inSeconds.abs() <
-                5,
-        orElse: () => null,
-      );
-
-      if (existingMessage != null) {
-        print('⚠️ Duplicate message detected, skipping send');
-        return;
-      }
-
-      // สร้างข้อความชั่วคราวเพื่อแสดง animation
-      final tempMessage = {
-        '_id': tempMessageId,
-        'room': widget.roomId,
-        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
-        'timestamp': DateTime.now().toIso8601String(),
-        'isRead': true,
-        'isSending': true,
-        'message': messageText,
-        'isReply': _replyingToMessage != null,
-        'replyToId': _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
-        'replyToMessage': _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
-            : null,
-      };
-
-      // เพิ่มข้อความชั่วคราวเข้าไปในรายการ
-      setState(() {
-        messages.insert(0, tempMessage);
-      });
-
       // ส่งข้อความจริง พร้อมข้อมูล reply
-      final response = await widget.apiService.sendMessage(
+      await widget.apiService.sendMessage(
         roomId: widget.roomId,
         message: messageText,
         employeeId: currentUserId!,
-        replyToId: _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
+        replyToId: _replyingToMessage?['_id'],
         replyToMessage: _replyingToMessage != null
             ? {
                 'message': _replyingToMessage!['message'],
@@ -193,31 +142,13 @@ class _ChatPageState extends State<ChatPage> {
             : null,
       );
 
-      // อัพเดทข้อความชั่วคราวด้วยข้อมูลจริง
-      setState(() {
-        final index = messages.indexWhere((m) => m['_id'] == tempMessageId);
-        if (index != -1) {
-          final updatedMessage = {
-            ...messages[index],
-            '_id': response['_id'] ?? tempMessageId,
-            'isSending': false,
-            'isReply': response['isReply'] ?? false,
-            'replyToId': response['replyToId'],  // Changed from replyTo to replyToId
-            'replyToMessage': response['replyToMessage'],
-          };
-          messages[index] = updatedMessage;
-        }
-      });
+      // ไม่ต้อง insert message ใน messages ตรงนี้ ให้รอจาก socket เท่านั้น
 
       // ล้างข้อความในช่องพิมพ์และ reply
       _messageController.clear();
       _clearReply();
     } catch (e) {
       print('Error sending message: $e');
-      // ลบข้อความชั่วคราวออกถ้าเกิดข้อผิดพลาด
-      setState(() {
-        messages.removeWhere((m) => m['isSending'] == true);
-      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -236,7 +167,6 @@ class _ChatPageState extends State<ChatPage> {
       if (mounted) {
         setState(() {
           isSending = false;
-          _sendingMessageIds.remove(tempMessageId);
         });
       }
     }
@@ -598,192 +528,104 @@ class _ChatPageState extends State<ChatPage> {
         return;
       }
 
-      try {
-        // Handle socket.io message format
-        dynamic messageData;
-        if (data is List && data.isNotEmpty && data[0] is Map) {
-          messageData = data[0];
-        } else if (data is Map) {
-          messageData = data;
-        } else {
-          print('❌ Invalid message format');
-          return;
+      Map<String, dynamic>? message;
+      
+      // Handle different data formats
+      if (data is List && data.isNotEmpty) {
+        print('Data is a List, length: ${data.length}');
+        if (data.first is Map) {
+          print('First element type: ${data.first.runtimeType}');
+          message = Map<String, dynamic>.from(data.first);
+          print('Extracted message from list:');
         }
-
-        // ตรวจสอบว่าเป็นข้อความสำหรับห้องนี้หรือไม่
-        final roomField = messageData['room'] ?? messageData['roomId'];
-        bool isForThisRoom = false;
-        if (roomField is String) {
-          isForThisRoom = roomField == widget.roomId;
-        } else if (roomField is List && roomField.isNotEmpty) {
-          isForThisRoom = roomField.contains(widget.roomId) || roomField.first == widget.roomId;
-        }
-        if (!isForThisRoom) {
-          return;
-        }
-
-        final messageId = messageData['_id']?.toString();
-        final messageText = messageData['message']?.toString() ?? '';
-        final senderId = messageData['sender']?['employeeID']?.toString();
-        final messageTimestamp =
-            messageData['timestamp']?.toString() ??
-            DateTime.now().toIso8601String();
-
-        // ตรวจสอบข้อความซ้ำจาก server
-     // ตรวจสอบข้อความซ้ำจาก server หรือ temporary message
-final existingIndex = messages.indexWhere((m) {
-  // ตรวจสอบ ID เหมือนเดิม
-  if (m['_id'] == messageId) return true;
-  
-  // ตรวจสอบ temporary message
-  if (m['isSending'] == true && 
-      m['sender']['employeeID'] == senderId) {
-    
-    // สำหรับรูปภาพ - เปรียบเทียบว่าเป็นรูปภาพทั้งคู่
-    if (messageData['isImage'] == true && m['isImage'] == true) {
-      print('Found temporary image message to replace');
-      return true;
-    }
-    
-    // สำหรับข้อความ - เปรียบเทียบเนื้อหา
-    if (messageData['isImage'] != true && 
-        m['isImage'] != true && 
-        m['message'] == messageText) {
-      print('Found temporary text message to replace');
-      return true;
-    }
-  }
-  
-  return false;
-});
-
-if (existingIndex != -1) {
-  // ถ้าเป็น temporary message ให้แทนที่
-  if (messages[existingIndex]['isSending'] == true) {
-    print('ℹ️ Replacing temporary message with server response');
-    print('Message type: ${messageData['isImage'] == true ? 'Image' : 'Text'}');
-    
-    setState(() {
-      messages[existingIndex] = {
-        '_id': messageId,
-        'room': messageData['room'],
-        'message': messageText,
-        'sender': messageData['sender'] is Map
-            ? Map<String, dynamic>.from(messageData['sender'])
-            : {
-                'fullName': messageData['sender']?.toString() ?? 'Unknown',
-                'employeeID': senderId ?? 'Unknown',
-              },
-        'timestamp': messageTimestamp,
-        'isRead': messageData['isRead'] ?? false,
-        'isImage': messageData['isImage'] ?? (messageData['imageUrl'] != null),
-        'imageUrl': messageData['imageUrl'],
-        'status': 'sent',
-        'isReply': messageData['isReply'] ?? false,
-        'replyTo': messageData['replyTo'],
-        'replyToMessage': messageData['replyToMessage'],
-      };
-    });
-    
-    // เลื่อนไปที่ข้อความที่อัพเดทแล้ว
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-        );
+      } else if (data is Map) {
+        message = Map<String, dynamic>.from(data);
       }
-    });
-    return;
-  } else {
-    print('ℹ️ Message already exists, skipping...');
-    return;
-  }
-}
 
-// เพิ่มข้อความใหม่จาก server (เฉพาะที่ไม่ใช่ temporary message)
-final newMessage = {
-  '_id': messageId,
-  'room': messageData['room'],
-  'message': messageText,
-  'sender': messageData['sender'] is Map
-      ? Map<String, dynamic>.from(messageData['sender'])
-      : {
-          'fullName': messageData['sender']?.toString() ?? 'Unknown',
-          'employeeID': senderId ?? 'Unknown',
-        },
-  'timestamp': messageTimestamp,
-  'isRead': messageData['isRead'] ?? false,
-  'isImage': messageData['isImage'] ?? (messageData['imageUrl'] != null),
-  'imageUrl': messageData['imageUrl'],
-  'status': 'sent',
-  'isReply': messageData['isReply'] ?? false,
-  'replyTo': messageData['replyTo'],
-  'replyToMessage': messageData['replyToMessage'],
-};
+      if (message != null) {
+        print('- Message ID: ${message['_id']}');
+        print('- Room: ${message['room']}');
+        print('- Content: ${message['message']}');
+        print('- Sender: ${message['sender']}');
+        print('- Timestamp: ${message['timestamp']}');
+        print('- Is Read: ${message['isRead']}');
+        print('- Success: ${message['success']}');
 
-setState(() {
-  // เพิ่มข้อความใหม่ที่ตำแหน่งแรกเสมอ
-  messages.insert(0, newMessage);
-   print('messages length: ${messages.length}');
-  // เลื่อนไปที่ข้อความใหม่ทันที
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-      );
-    }
-  });
-});
-        // เพิ่มข้อความใหม่จาก server
-        // final newMessage = {
-        //   '_id': messageId,
-        //   'room': messageData['room'],
-        //   'message': messageText,
-        //   'sender':
-        //       messageData['sender'] is Map
-        //           ? Map<String, dynamic>.from(messageData['sender'])
-        //           : {
-        //             'fullName': messageData['sender']?.toString() ?? 'Unknown',
-        //             'employeeID': senderId ?? 'Unknown',
-        //           },
-        //   'timestamp': messageTimestamp,
-        //   'isRead': messageData['isRead'] ?? false,
-        //   'isImage':
-        //       messageData['isImage'] ?? (messageData['imageUrl'] != null),
-        //   'imageUrl': messageData['imageUrl'],
-        //   'status': 'sent',
-        //   'isReply': messageData['isReply'] ?? false,
-        //   'replyTo': messageData['replyTo'],
-        //   'replyToMessage': messageData['replyToMessage'],
-        // };
-
-        // setState(() {
-        //   // เพิ่มข้อความใหม่ที่ตำแหน่งแรกเสมอ
-        //   messages.insert(0, newMessage);
-
-        //   // เลื่อนไปที่ข้อความใหม่ทันที
-        //   WidgetsBinding.instance.addPostFrameCallback((_) {
-        //     if (_scrollController.hasClients) {
-        //       _scrollController.animateTo(
-        //         0,
-        //         duration: const Duration(milliseconds: 300),
-        //         curve: Curves.easeOutCubic,
-        //       );
-        //     }
-        //   });
-        // });
-
-        // Mark as read if needed
-        if (senderId != currentUserId?.toString()) {
-          _markAsRead();
+        // Check if message already exists in the list
+        final messageId = message['_id']?.toString();
+        if (messageId != null) {
+          final existingMessageIndex = messages.indexWhere((m) => m['_id'] == messageId);
+          if (existingMessageIndex != -1) {
+            print('Message already exists in list, updating instead of adding');
+            // Update existing message with any new data
+            setState(() {
+              messages[existingMessageIndex] = {
+                ...messages[existingMessageIndex],
+                if (message != null) ...message,
+                'isLoading': false, // Ensure loading state is cleared
+              };
+            });
+            return;
+          }
         }
-      } catch (e) {
-        print('❌ Error processing new message: $e');
-        print('Stack trace: ${StackTrace.current}');
+
+        final processedMessage = {
+          '_id': message['_id']?.toString(),
+          'room': message['room']?.toString(),
+          'message': message['message']?.toString(),
+          'sender': message['sender'],
+          'timestamp': message['timestamp']?.toString(),
+          'isRead': message['isRead'] ?? false,
+          'isImage': message['isImage'] ?? false,
+          'imageUrl': message['imageUrl'],
+          'isFile': message['isFile'] ?? false,
+          'fileName': message['fileName'] ?? message['filename'],
+          'fileType': message['fileType'],
+          'fileUrl': message['fileUrl'] ?? message['fileURL'],
+          'isReply': message['isReply'] ?? false,
+          'replyToId': message['replyToId'],
+          'replyToMessage': message['replyToMessage'],
+        };
+
+        print('Adding new message to list:');
+        print('- ID: ${processedMessage['_id']}');
+        print('- Room: ${processedMessage['room']}');
+        print('- Content: ${processedMessage['message']}');
+        print('- Sender: ${processedMessage['sender']}');
+        print('- Timestamp: ${processedMessage['timestamp']}');
+        print('- Is Read: ${processedMessage['isRead']}');
+        print('DEBUG: processedMessage = $processedMessage');
+
+        // หา temp message ที่ isSending == true และเป็นไฟล์เดียวกัน
+        final tempIndex = messages.indexWhere((m) =>
+          m?['isSending'] == true &&
+          m?['isFile'] == true &&
+          m?['fileName'] != null && message?['fileName'] != null &&
+          m?['fileName'] == message?['fileName'] &&
+          m?['sender'] != null && message?['sender'] != null &&
+          m?['sender']?['employeeID'] == message?['sender']?['employeeID']
+        );
+
+        if (tempIndex != -1) {
+          // แทนที่ temp message ด้วย message จริง
+          setState(() {
+            messages[tempIndex] = processedMessage;
+          });
+          return;
+        }
+
+        // ป้องกันการ insert ข้อความซ้ำ (เช็ค _id)
+        final exists = messages.any((m) => m['_id'] == processedMessage['_id']);
+        if (exists) {
+          print('Message already exists in messages, skip insert');
+          return;
+        }
+
+        setState(() {
+          messages.insert(0, processedMessage);
+        });
+      } else {
+        print('Received invalid message format: $data');
       }
     });
   }
@@ -1148,62 +990,13 @@ setState(() {
     });
 
     try {
-      print('=== Sending Image ===');
-      print('Room ID: ${widget.roomId}');
-      print('Current User ID: $currentUserId');
-      print('Image path: ${_selectedImage!.path}');
-      print('File extension: $fileExtension');
-      print('MimeType: $mimeType');
-      print('Reply to: ${_replyingToMessage?['_id']}');
-
-      // สร้างข้อความชั่วคราวเพื่อแสดง animation
-      final tempMessage = {
-        '_id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'room': widget.roomId,
-        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
-        'timestamp': DateTime.now().toIso8601String(),
-        'isRead': false,
-        'isSending': true,
-        'isImage': true,
-        'imageUrl': null,
-        'isReply': _replyingToMessage != null,
-        'replyToId': _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
-        'replyToMessage': _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
-            : null,
-      };
-      if (_messageController.text.trim().isNotEmpty) {
-        tempMessage['message'] = _messageController.text.trim();
-      }
-
-      // เพิ่มข้อความชั่วคราวเข้าไปในรายการ
-      setState(() {
-        messages.insert(0, tempMessage);
-      });
-
-      // เลื่อนไปที่ข้อความใหม่ทันที
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            0,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
-          );
-        }
-      });
-
       // อัพโหลดรูปภาพ พร้อมข้อมูล reply
-      final response = await widget.apiService.uploadImage(
+      await widget.apiService.uploadImage(
         _selectedImage!,
         widget.roomId,
         currentUserId!,
         message: _messageController.text.trim().isNotEmpty ? _messageController.text.trim() : null,
-        replyToId: _replyingToMessage?['_id'],  // Changed from replyTo to replyToId
+        replyToId: _replyingToMessage?['_id'],
         replyToMessage: _replyingToMessage != null
             ? {
                 'message': _replyingToMessage!['message'],
@@ -1214,41 +1007,7 @@ setState(() {
             : null,
       );
 
-      print('Image upload response: $response');
-      print('Image URL: ${response['imageUrl']}');
-
-      if (response == null) {
-        throw Exception('ไม่ได้รับข้อมูลการตอบกลับจากเซิร์ฟเวอร์');
-      }
-
-      // อัพเดทข้อความชั่วคราวด้วยข้อมูลจริง
-      setState(() {
-        final index = messages.indexWhere((m) => m['isSending'] == true);
-        if (index != -1) {
-          final updated = {
-            ...messages[index],
-            '_id': response['_id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-            'sender': response['sender'] ?? {'employeeID': currentUserId, 'fullName': 'You'},
-            'timestamp': response['timestamp'] ?? DateTime.now().toIso8601String(),
-            'isRead': response['isRead'] ?? false,
-            'isSending': false,
-            'isImage': true,
-            'imageUrl': response['imageUrl'],
-            'isReply': response['isReply'] ?? false,
-            'replyToId': response['replyToId'],  // Changed from replyTo to replyToId
-            'replyToMessage': response['replyToMessage'],
-          };
-          // อัปเดต message เฉพาะถ้ามีใน response
-          if (response['message'] != null && response['message'].toString().trim().isNotEmpty) {
-            updated['message'] = response['message'];
-          } else {
-            updated.remove('message');
-          }
-          messages[index] = updated;
-        }
-      });
-
-      // รีเซ็ตรูปที่เลือกและข้อความ reply
+      // ไม่ต้อง insert message ใน messages ตรงนี้ ให้รอจาก socket เท่านั้น
       setState(() {
         _selectedImage = null;
         _clearReply();
@@ -1263,11 +1022,6 @@ setState(() {
       } else if (e.toString().contains('FormatException')) {
         errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์ กรุณาลองใหม่อีกครั้ง';
       }
-
-      // ลบข้อความชั่วคราวออกถ้าเกิดข้อผิดพลาด
-      setState(() {
-        messages.removeWhere((m) => m['isSending'] == true);
-      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1409,47 +1163,8 @@ setState(() {
     });
 
     try {
-      print('=== Sending File ===');
-      print('Room ID: ${widget.roomId}');
-      print('Current User ID: $currentUserId');
-      print('File name: ${_selectedFile!.name}');
-      print('File size: ${_selectedFile!.size}');
-      print('File extension: ${_selectedFile!.extension}');
-      print('Reply to: ${_replyingToMessage?['_id']}');
-
-      // Create temporary message
-      final tempMessage = {
-        '_id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'room': widget.roomId,
-        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
-        'timestamp': DateTime.now().toIso8601String(),
-        'isRead': false,
-        'isSending': true,
-        'isFile': true,
-        'fileName': _selectedFile!.name,
-        'fileType': _selectedFile!.extension,
-        'isReply': _replyingToMessage != null,
-        'replyToId': _replyingToMessage?['_id'],
-        'replyToMessage': _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
-            : null,
-      };
-      if (_messageController.text.trim().isNotEmpty) {
-        tempMessage['message'] = _messageController.text.trim();
-      }
-
-      // Add temporary message to list
-      setState(() {
-        messages.insert(0, tempMessage);
-      });
-
-      // Upload file with optional message
-      final response = await widget.apiService.uploadFile(
+      // อัพโหลดไฟล์
+      await widget.apiService.uploadFile(
         _selectedFile!,
         widget.roomId,
         currentUserId!,
@@ -1465,41 +1180,12 @@ setState(() {
             : null,
       );
 
-      // Update temporary message with actual data
-      setState(() {
-        final index = messages.indexWhere((m) => m['isSending'] == true);
-        if (index != -1) {
-          final updated = {
-            ...messages[index],
-            '_id': response['_id'],
-            'sender': response['sender'],
-            'timestamp': response['timestamp'],
-            'isRead': response['isRead'] ?? false,
-            'isSending': false,
-            'isFile': true,
-            'fileUrl': response['fileUrl'],
-            'fileName': response['fileName'],
-            'fileType': response['fileType'],
-            'isReply': response['isReply'] ?? false,
-            'replyToId': response['replyToId'],
-            'replyToMessage': response['replyToMessage'],
-          };
-          if (response['message'] != null && response['message'].toString().trim().isNotEmpty) {
-            updated['message'] = response['message'];
-          } else {
-            updated.remove('message');
-          }
-          messages[index] = updated;
-        }
-      });
-
-      // Reset file selection and reply
+      // ไม่ต้อง insert message ใน messages ตรงนี้ ให้รอจาก socket เท่านั้น
       setState(() {
         _selectedFile = null;
         _clearReply();
       });
       _messageController.clear();
-
     } catch (e) {
       print('Error sending file: $e');
       String errorMessage = 'ไม่สามารถส่งไฟล์ได้';
@@ -1509,11 +1195,6 @@ setState(() {
       } else if (e.toString().contains('File too large')) {
         errorMessage = 'ขนาดไฟล์ต้องไม่เกิน 5MB';
       }
-
-      // Remove temporary message on error
-      setState(() {
-        messages.removeWhere((m) => m['isSending'] == true);
-      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1746,7 +1427,10 @@ setState(() {
 
   // Add file message builder
   Widget _buildMessageFile(Map<String, dynamic> message, bool isCurrentUser) {
-    final fileUrl = message['fileUrl'];
+    final rawFileUrl = message['fileUrl']?.toString() ?? '';
+    final fileUrl = rawFileUrl.startsWith('http') 
+        ? rawFileUrl 
+        : '${ApiService.baseUrl}${rawFileUrl.startsWith('/') ? rawFileUrl : '/$rawFileUrl'}';
     final fileName = message['fileName'];
     final fileType = message['fileType'];
 
@@ -1768,34 +1452,40 @@ setState(() {
               size: 32,
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  fileName,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    fileName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
-                ),
-                Row(
-                  children: [
-                    Text(
-                      'คลิกเพื่อเปิดไฟล์',
-                      style: TextStyle(
-                        fontSize: 12,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'คลิกเพื่อเปิดไฟล์',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.open_in_new,
+                        size: 12,
                         color: Colors.grey[600],
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.open_in_new,
-                      size: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -1870,31 +1560,31 @@ setState(() {
                     ),
                   ),
                   Container(
-                    margin: EdgeInsets.only(left: isDesktop ? 12 : 8),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isDesktop ? 12 : 8,
-                      vertical: isDesktop ? 6 : 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color:
-                          isConnected
-                              ? Colors.green
-                              : isConnecting
-                              ? Colors.orange
-                              : Colors.red,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      isConnected
-                          ? 'ออนไลน์'
-                          : isConnecting
-                          ? 'กำลังเชื่อมต่อ...'
-                          : 'ออฟไลน์',
-                      style: TextStyle(
-                        fontSize: isDesktop ? 14 : 12,
-                        color: Colors.white,
-                      ),
-                    ),
+                    // margin: EdgeInsets.only(left: isDesktop ? 12 : 8),
+                    // padding: EdgeInsets.symmetric(
+                    //   horizontal: isDesktop ? 12 : 8,
+                    //   vertical: isDesktop ? 6 : 4,
+                    // ),
+                    // decoration: BoxDecoration(
+                    //   color:
+                    //       isConnected
+                    //           ? Colors.green
+                    //           : isConnecting
+                    //           ? Colors.orange
+                    //           : Colors.red,
+                    //   borderRadius: BorderRadius.circular(12),
+                    // ),
+                    // child: Text(
+                    //   isConnected
+                    //       ? 'ออนไลน์'
+                    //       : isConnecting
+                    //       ? 'กำลังเชื่อมต่อ...'
+                    //       : 'ออฟไลน์',
+                    //   style: TextStyle(
+                    //     fontSize: isDesktop ? 14 : 12,
+                    //     color: Colors.white,
+                    //   ),
+                    // ),
                   ),
                 ],
               ),

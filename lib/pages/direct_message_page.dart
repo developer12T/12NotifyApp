@@ -30,13 +30,17 @@ class DirectMessagePage extends StatefulWidget {
 }
 
 class _DirectMessagePageState extends State<DirectMessagePage> {
+  // Controllers และ Focus
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _messageFocusNode = FocusNode();
   final ImagePicker _picker = ImagePicker();
 
+  // File selections
   File? _selectedImage;
   PlatformFile? _selectedFile;
+
+  // State variables
   List<Map<String, dynamic>> messages = [];
   bool isLoading = true;
   bool isSending = false;
@@ -49,29 +53,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
   @override
   void initState() {
     super.initState();
-    _loadCurrentUserEmployeeId();
-    // Setup socket listeners after a short delay to ensure widget is mounted
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (mounted) {
-        _setupSocketListeners();
-      }
-    });
-    _messageController.addListener(() {
-      setState(() {}); // Update UI when text changes
-    });
-    // Add listener to scroll to bottom when messages change
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Re-subscribe to direct messages when dependencies change
-    if (currentUserId != null && _socketListenersSetup) {
-      _subscribeToDirectMessages();
-    }
+    _initializeComponent();
   }
 
   @override
@@ -83,373 +65,282 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     super.dispose();
   }
 
-  Future<void> _loadCurrentUserEmployeeId() async {
-    print('\n=== Loading User ID ===');
-    final prefs = await SharedPreferences.getInstance();
-    final userJson = prefs.getString('user');
-    if (userJson != null) {
-      final userData = jsonDecode(userJson);
-      final employeeId = userData['employeeID']?.toString();
-      print('User ID loaded successfully: $employeeId');
-
-      if (employeeId != null) {
-        setState(() {
-          currentUserId = employeeId;
+  /// แก้ไข: เรียงลำดับการ initialize ให้ถูกต้อง
+  Future<void> _initializeComponent() async {
+    try {
+      // 1. โหลด User ID ก่อน
+      await _loadCurrentUserEmployeeId();
+      
+      // 2. ถ้ายัง mounted อยู่ ค่อยทำส่วนอื่น
+      if (mounted) {
+        // 3. Setup socket listeners
+        _setupSocketListeners();
+        
+        // 4. Setup text controller listener
+        _messageController.addListener(() {
+          if (mounted) setState(() {});
         });
         
-        // Load messages and subscribe only after currentUserId is set
-        await _loadMessages();
-        if (_socketListenersSetup) {
-          _subscribeToDirectMessages();
-        }
+        // 5. Scroll ไปด้านล่างหลัง build เสร็จ
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _scrollToBottom();
+        });
       }
-    } else {
-      print('No user data found in SharedPreferences');
+    } catch (e) {
+      print('❌ Error initializing component: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 
+  /// แก้ไข: เพิ่ม error handling และ safety checks
+  Future<void> _loadCurrentUserEmployeeId() async {
+    print('\n=== Loading User ID ===');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userJson = prefs.getString('user');
+      
+      if (userJson != null) {
+        final userData = jsonDecode(userJson);
+        final employeeId = userData['employeeID']?.toString();
+        
+        if (employeeId != null) {
+          if (mounted) {
+            setState(() {
+              currentUserId = employeeId;
+            });
+          }
+          
+          print('✅ User ID loaded: $employeeId');
+          
+          // โหลด messages หลังจากได้ user ID
+          await _loadMessages();
+          
+        } else {
+          print('❌ Employee ID is null');
+          if (mounted) {
+            setState(() {
+              isLoading = false;
+            });
+          }
+        }
+      } else {
+        print('❌ No user data found');
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ Error loading user ID: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  /// แก้ไข: ปรับปรุงการ setup socket listeners
   void _setupSocketListeners() {
-    if (_socketListenersSetup || widget.apiService.socket == null) {
-      print('Socket listeners already setup or socket is null');
+    // ตรวจสอบเงื่อนไขก่อน setup
+    if (_socketListenersSetup || widget.apiService.socket == null || !mounted) {
+      print('⏭️ Skip socket setup');
       return;
     }
 
     print('\n=== Setting up Socket Listeners ===');
-    print('Socket connected: ${widget.apiService.socket?.connected}');
-    print('Socket ID: ${widget.apiService.socket?.id}');
-    print('Current User ID: $currentUserId');
-    print('Recipient ID: ${widget.recipientId}');
-
-    // Remove any existing listeners first
+    
+    // ลบ listeners เก่าก่อน
     _removeSocketListeners();
 
-    // Listen for socket connection status
+    // Connection status listeners
     widget.apiService.socket?.on('connect', (_) {
-      print('\n=== Socket Connected ===');
-      print('Socket ID: ${widget.apiService.socket?.id}');
-      print('Current User ID: $currentUserId');
-      if (currentUserId != null) {
+      print('✅ Socket Connected');
+      if (currentUserId != null && mounted) {
         _subscribeToDirectMessages();
+        setState(() {
+          isConnected = true;
+          isConnecting = false;
+        });
       }
-      setState(() {
-        isConnected = true;
-        isConnecting = false;
-      });
     });
 
     widget.apiService.socket?.on('disconnect', (_) {
-      print('\n=== Socket Disconnected ===');
-      setState(() {
-        isConnected = false;
-        isConnecting = false;
-        _socketListenersSetup = false;
-      });
+      print('❌ Socket Disconnected');
+      if (mounted) {
+        setState(() {
+          isConnected = false;
+          isConnecting = false;
+        });
+      }
     });
 
     widget.apiService.socket?.on('connect_error', (error) {
-      print('\n=== Socket Connection Error ===');
-      print('Error: $error');
-      setState(() {
-        isConnected = false;
-        isConnecting = false;
-        _socketListenersSetup = false;
-      });
+      print('❌ Socket Connection Error: $error');
+      if (mounted) {
+        setState(() {
+          isConnected = false;
+          isConnecting = false;
+        });
+      }
     });
 
-    // Listen for new direct messages
+    // Message event listeners
     widget.apiService.socket?.on('newDirectMessage', (data) {
-      print('\n=== New Direct Message Received ===');
-      print('Socket ID: ${widget.apiService.socket?.id}');
-      print('Current User ID: $currentUserId');
-      print('Recipient ID: ${widget.recipientId}');
-      print('Raw Message Data: $data');
+      _handleNewDirectMessage(data);
+    });
 
-      if (data is Map && mounted) {
-        final messageData = Map<String, dynamic>.from(data);
-        if (messageData['_id'] == null || messageData['sender'] == null) {
-          print('Invalid message data: missing required fields');
-          return;
-        }
-        final sender = messageData['sender'];
+    widget.apiService.socket?.on('directMessageSent', (data) {
+      print('\n✅ Direct Message Sent Confirmation');
+      _handleDirectMessageSent(data);
+    });
+
+    widget.apiService.socket?.on('directMessagesRead', (data) {
+      print('\n👁️ Direct Messages Read');
+      _handleMessagesRead(data);
+    });
+
+    widget.apiService.socket?.on('directMessageDeleted', (data) {
+      final messageId = data['messageId'];
+      if (messageId != null) {
+        setState(() {
+          messages.removeWhere((m) => m['_id'] == messageId);
+        });
+      }
+    });
+
+    widget.apiService.socket?.on('newDirectMessageNotification', (data) {
+      if (!mounted) return;
+      try {
+        final notification = data is Map ? data : {};
+        final recipientId = notification['recipientId']?.toString();
+        final sender = notification['sender'] as Map?;
         final senderId = sender?['employeeID']?.toString();
-        final messageId = messageData['_id']?.toString();
-        final message = messageData['message']?.toString();
-        final timestamp = messageData['isoString'] ?? messageData['timestamp'] ?? DateTime.now().toIso8601String();
+        final messageId = notification['_id']?.toString();
 
-        final isForThisConversation = (senderId == currentUserId && widget.recipientId == widget.recipientId) ||
-            (senderId == widget.recipientId && currentUserId == widget.recipientId);
+        // จัดการ reply message
+        if (notification['replyToMessage'] != null) {
+          final replyData = notification['replyToMessage'];
+          final replySender = replyData['sender'] as Map?;
+          final hasReplyContent =
+            (replySender != null && (replySender['fullName']?.toString().trim().isNotEmpty ?? false)) ||
+            (replyData['message']?.toString().trim().isNotEmpty ?? false);
 
-        if (isForThisConversation) {
-          print('Processing message for this conversation');
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            setState(() {
-              print('Before remove temp: ${messages.where((m) => m['isSending'] == true && m['sender']?['employeeID'] == currentUserId && m['message'] == message).toList()}');
-              messages.removeWhere((m) =>
-                m['isSending'] == true &&
-                m['sender']?['employeeID'] == currentUserId &&
-                m['message'] == message
-              );
-              print('After remove temp: ${messages.where((m) => m['isSending'] == true && m['sender']?['employeeID'] == currentUserId && m['message'] == message).toList()}');
-              int existingMessageIndex = messages.indexWhere((m) => m['_id'] == messageId);
-              if (existingMessageIndex == -1) {
-                existingMessageIndex = messages.indexWhere((m) => 
-                  m['isSending'] == true && 
-                  m['sender']?['employeeID'] == currentUserId &&
-                  m['message'] == message
-                );
-              }
-              if (existingMessageIndex != -1) {
-                final existingMessage = messages[existingMessageIndex];
-                final updatedMessage = Map<String, dynamic>.from({
-                  ...existingMessage,
-                  ...messageData,
-                  'isSending': false,
-                  'isoString': timestamp,
-                  'timestamp': timestamp,
-                  'message': message ?? existingMessage['message'],
-                  'sender': sender ?? existingMessage['sender'],
-                  'replyTo': messageData['replyTo'],
-                  'replyToMessage': messageData['replyToMessage'],
-                });
-                messages[existingMessageIndex] = updatedMessage;
-              } else {
-                final safeData = Map<String, dynamic>.from({
-                  ...messageData,
-                  'isSending': false,
-                  'isRead': messageData['isRead'] ?? false,
-                  'isoString': timestamp,
-                  'timestamp': timestamp,
-                  'sender': {
-                    'employeeID': sender?['employeeID'] ?? 'unknown',
-                    'fullName': sender?['fullName'] ?? 'Unknown User',
-                    'department': sender?['department'] ?? '',
-                    'imgUrl': sender?['imgUrl'],
-                  },
-                });
-                messages.add(safeData);
-              }
-              messages.sort((a, b) {
-                final aTime = DateTime.parse(a['isoString'] ?? a['timestamp'] ?? DateTime.now().toIso8601String());
-                final bTime = DateTime.parse(b['isoString'] ?? b['timestamp'] ?? DateTime.now().toIso8601String());
-                return aTime.compareTo(bTime);
+          if (hasReplyContent) {
+            notification['replyToMessage'] = {
+              'messageId': replyData['messageId'] ?? replyData['_id'],
+              'message': replyData['message'] ?? '',
+              'sender': replyData['sender'] ?? {
+                'employeeID': replyData['senderId'] ?? 'unknown',
+                'fullName': 'Unknown User',
+                'department': '',
+                'imgUrl': null,
+              },
+              'isImage': replyData['isImage'] ?? false,
+              'imageUrl': replyData['imageUrl'],
+              'isFile': replyData['isFile'] ?? false,
+              'fileName': replyData['fileName'],
+              'fileType': replyData['fileType'],
+              'fileUrl': replyData['fileUrl'],
+              'timestamp': replyData['timestamp'] ?? replyData['isoString'],
+            };
+          } else {
+            notification['replyToMessage'] = null;
+          }
+        }
+
+        if ((recipientId == currentUserId && senderId == widget.recipientId) ||
+            (senderId == currentUserId && recipientId == widget.recipientId)) {
+          setState(() {
+            final exists = messages.any((m) => m['_id'] == messageId);
+            if (!exists) {
+              messages.add({
+                '_id': messageId ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                'message': notification['message'] ?? '',
+                'timestamp': notification['isoString'] ?? notification['timestamp'] ?? DateTime.now().toIso8601String(),
+                'isoString': notification['isoString'] ?? notification['timestamp'] ?? DateTime.now().toIso8601String(),
+                'isRead': false,
+                'isSending': false,
+                'isImage': notification['isImage'] ?? false,
+                'imageUrl': notification['imageUrl'],
+                'isFile': notification['isFile'] ?? false,
+                'fileName': notification['fileName'],
+                'fileType': notification['fileType'],
+                'fileUrl': notification['fileUrl'],
+                'isReply': notification['replyToMessage'] != null,
+                'replyToId': notification['replyToMessage']?['messageId'],
+                'replyToMessage': notification['replyToMessage'],
+                'sender': sender ?? {'employeeID': senderId ?? 'unknown', 'fullName': 'Unknown User'},
               });
-            });
-            _scrollToBottom();
-            if (senderId == widget.recipientId && messageId != null) {
-              print('Marking message as read');
-              widget.apiService.markDirectMessagesAsRead(
-                [messageId],
-                currentUserId!,
-              );
+              _sortMessagesByTime();
+              _scrollToBottom();
             }
           });
-        } else {
-          print('Message is not for this conversation, ignoring');
         }
-      } else {
-        print('Invalid message data or widget not mounted');
-      }
-    });
-
-    // Listen for message notifications
-    widget.apiService.socket?.on('newDirectMessageNotification', (data) {
-      print('\n=== New Direct Message Notification ===');
-      print('Notification Data: $data');
-      
-      if (data is Map && mounted) {
-        final notificationData = Map<String, dynamic>.from(data);
-        final sender = notificationData['sender'];
-        final senderId = sender?['employeeID']?.toString();
-        final message = notificationData['message']?.toString();
-        final timestamp = notificationData['isoString'] ?? notificationData['timestamp'] ?? DateTime.now().toIso8601String();
-
-        print('Notification details:');
-        print('- Sender ID: $senderId');
-        print('- Message: $message');
-        print('- Timestamp: $timestamp');
-
-        // Check if notification is for this conversation
-        final isForThisConversation = (senderId == currentUserId && widget.recipientId == widget.recipientId) ||
-            (senderId == widget.recipientId && currentUserId == widget.recipientId);
-
-        if (isForThisConversation) {
-          print('Processing notification for this conversation');
-          
-          // Ensure we're on the main thread
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            
-            setState(() {
-              // Add notification as a temporary message if it doesn't exist
-              final messageExists = messages.any((m) => 
-                m['message'] == message && 
-                m['sender']?['employeeID'] == senderId &&
-                m['timestamp'] == timestamp
-              );
-
-              if (!messageExists) {
-                print('Adding notification as temporary message');
-                final safeData = Map<String, dynamic>.from({
-                  '_id': DateTime.now().millisecondsSinceEpoch.toString(),
-                  'isSending': false,
-                  'isRead': false,
-                  'isoString': timestamp,
-                  'timestamp': timestamp,
-                  'message': message,
-                  'sender': {
-                    'employeeID': sender?['employeeID'] ?? 'unknown',
-                    'fullName': sender?['fullName'] ?? 'Unknown User',
-                    'department': sender?['department'] ?? '',
-                    'imgUrl': sender?['imgUrl'],
-                  },
-                });
-                messages.add(safeData);
-                print('Added notification message: $safeData');
-
-                // Sort messages
-                messages.sort((a, b) {
-                  final aTime = DateTime.parse(a['isoString'] ?? a['timestamp'] ?? DateTime.now().toIso8601String());
-                  final bTime = DateTime.parse(b['isoString'] ?? b['timestamp'] ?? DateTime.now().toIso8601String());
-                  return aTime.compareTo(bTime);
-                });
-
-                // Scroll to bottom
-                _scrollToBottom();
-              } else {
-                print('Message already exists, skipping notification');
-              }
-            });
-          });
-        } else {
-          print('Notification is not for this conversation, ignoring');
-        }
-      }
-    });
-
-    // Listen for message sent confirmation
-    widget.apiService.socket?.on('directMessageSent', (data) {
-      print('\n=== Direct Message Sent Confirmation ===');
-      print('Raw Data: $data');
-
-      if (data is Map && mounted) {
-        final messageData = Map<String, dynamic>.from(data);
-        final messageId = messageData['_id']?.toString();
-        final senderId = messageData['sender']?['employeeID']?.toString();
-        final message = messageData['message']?.toString();
-        final timestamp = messageData['isoString'] ?? messageData['timestamp'] ?? DateTime.now().toIso8601String();
-
-        print('Message ID: $messageId');
-        print('Sender ID: $senderId');
-        print('Message: $message');
-        print('Timestamp: $timestamp');
-
-        if (senderId == currentUserId) {
-          print('Processing sent message confirmation');
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            setState(() {
-              print('Before remove temp (sent): ${messages.where((m) => m['isSending'] == true && m['sender']?['employeeID'] == currentUserId && m['message'] == message).toList()}');
-              messages.removeWhere((m) =>
-                m['isSending'] == true &&
-                m['sender']?['employeeID'] == currentUserId &&
-                m['message'] == message
-              );
-              print('After remove temp (sent): ${messages.where((m) => m['isSending'] == true && m['sender']?['employeeID'] == currentUserId && m['message'] == message).toList()}');
-              int index = messages.indexWhere((m) => m['_id'] == messageId);
-              if (index == -1) {
-                index = messages.indexWhere((m) => 
-                  m['isSending'] == true && 
-                  m['sender']?['employeeID'] == currentUserId &&
-                  m['message'] == message
-                );
-              }
-              if (index != -1) {
-                final existingMessage = messages[index];
-                final updatedMessage = Map<String, dynamic>.from({
-                  ...existingMessage,
-                  ...messageData,
-                  'isSending': false,
-                  'isoString': timestamp,
-                  'timestamp': timestamp,
-                  'message': message ?? existingMessage['message'],
-                  'sender': messageData['sender'] ?? existingMessage['sender'],
-                });
-                messages[index] = updatedMessage;
-              } else {
-                print('Warning: Could not find message to update');
-              }
-            });
-          });
-        }
+      } catch (e) {
+        print('❌ Error handling newDirectMessageNotification: $e');
       }
     });
 
     _socketListenersSetup = true;
-    print('Socket listeners setup completed');
 
-    // Subscribe to direct messages if we have user ID
+    // Subscribe ถ้ามี user ID แล้ว
     if (currentUserId != null) {
-      print('Current user ID available, subscribing to direct messages');
       _subscribeToDirectMessages();
-    } else {
-      print('Current user ID not available, cannot subscribe to direct messages');
     }
   }
 
+  /// ลบ socket listeners
   void _removeSocketListeners() {
-    print('\n=== Removing Socket Listeners ===');
-    print('Socket ID: ${widget.apiService.socket?.id}');
+    if (widget.apiService.socket == null) return;
+    
+    print('🧹 Removing Socket Listeners');
     widget.apiService.socket?.off('newDirectMessage');
+    widget.apiService.socket?.off('directMessageSent');
     widget.apiService.socket?.off('directMessagesRead');
-    widget.apiService.socket?.off('directMessageDeleted');
     widget.apiService.socket?.off('connect');
     widget.apiService.socket?.off('disconnect');
     widget.apiService.socket?.off('connect_error');
-    widget.apiService.socket?.off('subscribeDirectMessages');
-    widget.apiService.socket?.off('directMessagesSubscribed');
-    widget.apiService.socket?.off('directMessageSent');
-    print('Socket listeners removed');
+    widget.apiService.socket?.off('directMessageDeleted');
+    widget.apiService.socket?.off('newDirectMessageNotification');
+    _socketListenersSetup = false;
   }
 
+  /// แก้ไข: ปรับปรุงการ subscribe
   Future<void> _subscribeToDirectMessages() async {
-    print('\n=== Subscribing to Direct Messages ===');
-    print('Socket connected: ${widget.apiService.socket?.connected}');
-    print('Socket ID: ${widget.apiService.socket?.id}');
-    print('Current User ID: $currentUserId');
-    print('Recipient ID: ${widget.recipientId}');
-
     if (currentUserId == null) {
-      print('❌ Cannot subscribe: Current user ID is null');
+      print('❌ Cannot subscribe: currentUserId is null');
       return;
     }
 
     if (widget.apiService.socket?.connected != true) {
-      print('❌ Cannot subscribe: Socket is not connected');
-      setState(() {
-        isConnecting = true;
-      });
+      print('❌ Cannot subscribe: Socket not connected');
+      if (mounted) {
+        setState(() {
+          isConnecting = true;
+        });
+      }
       return;
     }
 
     try {
-      // Remove any existing subscription first
-      widget.apiService.socket?.off('subscribeDirectMessages');
-      widget.apiService.socket?.off('directMessagesSubscribed');
-
       final subscriptionData = {
         'senderId': currentUserId,
         'recipientId': widget.recipientId,
         'conversationId': '${currentUserId}_${widget.recipientId}',
       };
-      print('Emitting subscribeDirectMessages event with data: $subscriptionData');
       
+      print('📡 Subscribing: $subscriptionData');
       widget.apiService.socket?.emit('subscribeDirectMessages', subscriptionData);
-
-      // Listen for subscription confirmation
+      
+      // Listen for confirmation
       widget.apiService.socket?.once('directMessagesSubscribed', (data) {
-        print('✅ Direct messages subscription confirmed:');
-        print('Data: $data');
+        print('✅ Subscription confirmed');
         if (mounted) {
           setState(() {
             isConnected = true;
@@ -458,12 +349,8 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         }
       });
 
-      print('Subscribe request sent successfully');
     } catch (e) {
-      print('❌ Error subscribing to direct messages:');
-      print('Error type: ${e.runtimeType}');
-      print('Error message: $e');
-      print('Stack trace: ${StackTrace.current}');
+      print('❌ Error subscribing: $e');
       if (mounted) {
         setState(() {
           isConnected = false;
@@ -473,199 +360,352 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     }
   }
 
-  Future<void> _loadMessages() async {
-    if (currentUserId == null) {
-      print('❌ currentUserId is null, cannot load messages');
-      return;
-    }
+  /// แก้ไข: ปรับปรุงการจัดการข้อความใหม่
+  void _handleNewDirectMessage(dynamic data) {
+    if (!mounted || data is! Map) return;
     try {
-      print('\n=== Loading Conversation Messages ===');
-      print('Recipient ID: ${widget.recipientId}');
-      print('Current User ID: $currentUserId');
+      final messageData = Map<String, dynamic>.from(data);
+      final sender = messageData['sender'] as Map?;
+      final senderId = sender?['employeeID']?.toString();
+      final recipientId = messageData['recipientId']?.toString();
+      final messageId = messageData['_id']?.toString();
+      final message = messageData['message']?.toString() ?? '';
 
-      final url = Uri.parse(
-        '${ApiService.baseUrl}/api/direct-messages/conversation/${widget.recipientId}',
-      ).replace(
-        queryParameters: {
-          'employeeId': currentUserId,
-          'page': '1',
-          'limit': '50',
-        },
-      );
+      // จัดการ reply message
+      if (messageData['replyToMessage'] != null) {
+        final replyData = messageData['replyToMessage'];
+        final replySender = replyData['sender'] as Map?;
+        final hasReplyContent =
+          (replySender != null && (replySender['fullName']?.toString().trim().isNotEmpty ?? false)) ||
+          (replyData['message']?.toString().trim().isNotEmpty ?? false);
 
-      print('Fetching messages from: $url');
-      final response = await http.get(url);
+        final isReply = hasReplyContent;
+      }
 
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      if (!_isMessageForThisConversation(senderId, recipientId)) return;
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['success']) {
-          final List<dynamic> messagesData = data['data'];
-          print('Loaded ${messagesData.length} messages');
+      setState(() {
+        _removeTempMessage(senderId, message);
+        final exists = messages.any((m) => m['_id'] == messageId);
+        if (!exists) {
+          final safeMessage = _createSafeMessage(messageData);
+          messages.add(safeMessage);
+          _sortMessagesByTime();
+        }
+      });
+      _scrollToBottom();
+    } catch (e) {
+      print('❌ Error handling new message: $e');
+    }
+  }
 
-          // Sort messages by createdAt in ascending order (oldest first)
-          messagesData.sort((a, b) {
-            final aTime = DateTime.parse(a['isoString'] ?? a['createdAt'] ?? a['timestamp'] ?? DateTime.now().toIso8601String());
-            final bTime = DateTime.parse(b['isoString'] ?? b['createdAt'] ?? b['timestamp'] ?? DateTime.now().toIso8601String());
-            return aTime.compareTo(bTime); // เรียงจากเก่าไปใหม่ (เก่าอยู่บน)
-          });
+  /// จัดการการยืนยันการส่งข้อความ
+  void _handleDirectMessageSent(dynamic data) {
+    if (!mounted || data is! Map) return;
 
-          setState(() {
-            messages = messagesData.map((msg) {
-              // Ensure sender object exists
-              if (msg['sender'] == null) {
-                msg['sender'] = {
-                  'employeeID': msg['sender']?.toString() ?? 'unknown',
+    try {
+      final messageData = Map<String, dynamic>.from(data);
+      final senderId = messageData['sender']?['employeeID']?.toString();
+      final messageId = messageData['_id']?.toString();
+      final message = messageData['message']?.toString() ?? '';
+
+      // ตรวจสอบว่าเป็นข้อความที่เราส่งหรือไม่
+      if (senderId != currentUserId) return;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        setState(() {
+          // ลบข้อความชั่วคราว
+          _removeTempMessage(senderId, message);
+
+          // หาและอัพเดตข้อความ
+          final index = messages.indexWhere((m) => m['_id'] == messageId);
+          if (index != -1) {
+            messages[index] = {
+              ...messages[index],
+              ...messageData,
+              'isSending': false,
+            };
+          } else {
+            // เพิ่มข้อความใหม่ถ้าไม่เจอ
+            final safeMessage = _createSafeMessage(messageData);
+            messages.add(safeMessage);
+            _sortMessagesByTime();
+          }
+        });
+      });
+
+    } catch (e) {
+      print('❌ Error handling message sent: $e');
+    }
+  }
+
+  /// จัดการสถานะอ่านแล้ว
+  void _handleMessagesRead(dynamic data) {
+    if (!mounted || data is! Map) return;
+
+    try {
+      final messageIds = List<String>.from(data['messageIds'] ?? []);
+      if (messageIds.isEmpty) return;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        setState(() {
+          for (int i = 0; i < messages.length; i++) {
+            if (messageIds.contains(messages[i]['_id'])) {
+              messages[i] = Map<String, dynamic>.from(messages[i])
+                ..['isRead'] = true;
+            }
+          }
+        });
+      });
+
+    } catch (e) {
+      print('❌ Error handling messages read: $e');
+    }
+  }
+
+  /// ตรวจสอบว่าข้อความเป็นสำหรับ conversation นี้หรือไม่
+  bool _isMessageForThisConversation(String? senderId, String? recipientId) {
+    if (currentUserId == null || senderId == null) return false;
+    
+    // กรณี 1: เราส่งให้ recipient
+    final sentByUs = (senderId == currentUserId && recipientId == widget.recipientId);
+    
+    // กรณี 2: recipient ส่งให้เรา
+    final sentToUs = (senderId == widget.recipientId && recipientId == currentUserId);
+    
+    return sentByUs || sentToUs;
+  }
+
+  /// ลบข้อความชั่วคราวที่ตรงกัน
+  void _removeTempMessage(String? senderId, String message) {
+    messages.removeWhere((m) =>
+      m['isSending'] == true &&
+      m['sender']?['employeeID'] == senderId &&
+      m['message'] == message
+    );
+  }
+
+  /// แก้ไข: สร้างข้อความที่ปลอดภัย
+  Map<String, dynamic> _createSafeMessage(Map<String, dynamic> messageData) {
+    final sender = messageData['sender'] as Map?;
+    final timestamp = messageData['isoString'] ??
+        messageData['timestamp'] ??
+        messageData['createdAt'] ??
+        DateTime.now().toIso8601String();
+
+    // Handle reply message structure
+    Map<String, dynamic>? replyToMessage;
+    bool isReply = false;
+    if (messageData['replyToMessage'] != null) {
+      final replyData = messageData['replyToMessage'];
+      final replySender = replyData['sender'] as Map?;
+      final hasReplyContent =
+          (replySender != null && (replySender['fullName']?.toString().trim().isNotEmpty ?? false)) ||
+          (replyData['message']?.toString().trim().isNotEmpty ?? false);
+
+      if (hasReplyContent) {
+        isReply = true;
+        replyToMessage = {
+          '_id': replyData['messageId'] ?? replyData['_id'],
+          'message': replyData['message'] ?? '',
+          'timestamp': replyData['createdAt'] ?? timestamp,
+          'isImage': replyData['isImage'] ?? false,
+          'imageUrl': replyData['imageUrl'],
+          'isFile': replyData['isFile'] ?? false,
+          'fileName': replyData['fileName'],
+          'fileType': replyData['fileType'],
+          'fileUrl': replyData['fileUrl'],
+          'sender': replySender != null
+              ? {
+                  'employeeID': replySender['employeeID']?.toString() ?? 'unknown',
+                  'fullName': replySender['fullName']?.toString() ?? 'Unknown User',
+                  'department': replySender['department']?.toString() ?? '',
+                  'imgUrl': replySender['imgUrl'],
+                }
+              : {
+                  'employeeID': replyData['sender']?.toString() ?? 'unknown',
                   'fullName': 'Unknown User',
                   'department': '',
                   'imgUrl': null,
-                };
-              }
+                },
+        };
+      }
+    }
 
-              // Ensure timestamp exists
-              msg['timestamp'] = msg['createdAt'] ?? DateTime.now().toIso8601String();
+    return {
+      '_id': messageData['_id']?.toString() ?? 'msg_${DateTime.now().millisecondsSinceEpoch}',
+      'message': messageData['message'] ?? '',
+      'timestamp': timestamp,
+      'isoString': timestamp,
+      'isRead': messageData['isRead'] ?? false,
+      'isSending': false,
+      'isImage': messageData['isImage'] ?? false,
+      'imageUrl': messageData['imageUrl'],
+      'isFile': messageData['isFile'] ?? false,
+      'fileName': messageData['fileName'],
+      'fileType': messageData['fileType'],
+      'fileUrl': messageData['fileUrl'],
+      'isReply': isReply,
+      'replyToId': isReply ? (messageData['replyTo'] ?? messageData['replyToMessage']?['messageId']) : null,
+      'replyToMessage': isReply ? replyToMessage : null,
+      'sender': {
+        'employeeID': sender?['employeeID']?.toString() ?? 'unknown',
+        'fullName': sender?['fullName']?.toString() ?? 'Unknown User',
+        'department': sender?['department']?.toString() ?? '',
+        'imgUrl': sender?['imgUrl'],
+      },
+    };
+  }
 
-              return Map<String, dynamic>.from(msg);
+  /// เรียงลำดับข้อความตามเวลา
+  void _sortMessagesByTime() {
+    messages.sort((a, b) {
+      final aTime = DateTime.parse(a['timestamp'] ?? DateTime.now().toIso8601String());
+      final bTime = DateTime.parse(b['timestamp'] ?? DateTime.now().toIso8601String());
+      return aTime.compareTo(bTime);
+    });
+  }
+
+  /// แก้ไข: โหลดข้อความจาก API
+  Future<void> _loadMessages() async {
+    if (currentUserId == null) return;
+
+    try {
+      final url = Uri.parse('${ApiService.baseUrl}/api/direct-messages/conversation/${widget.recipientId}')
+          .replace(queryParameters: {
+        'employeeId': currentUserId,
+        'page': '1',
+        'limit': '50',
+      });
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        if (data['success'] && mounted) {
+          final List<dynamic> messagesData = data['data'] ?? [];
+
+          setState(() {
+            messages = messagesData.map((msg) {
+              return _createSafeMessage(Map<String, dynamic>.from(msg));
             }).toList();
+            
+            _sortMessagesByTime();
             isLoading = false;
           });
 
-          print('Messages loaded successfully');
-          // Scroll to bottom after messages are loaded
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _scrollToBottom();
+            if (mounted) _scrollToBottom();
           });
         } else {
-          print('API returned success: false');
+          if (mounted) {
+            setState(() {
+              messages = [];
+              isLoading = false;
+            });
+          }
+        }
+      } else {
+        if (mounted) {
           setState(() {
             messages = [];
             isLoading = false;
           });
         }
-      } else {
-        print('API returned status code: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error loading messages: $e');
+      if (mounted) {
         setState(() {
           messages = [];
           isLoading = false;
         });
       }
-    } catch (e) {
-      print('Error loading messages: $e');
-      setState(() {
-        messages = [];
-        isLoading = false;
-      });
     }
   }
 
-  Future<void> _sendMessage() async {
-    if (_messageController.text.trim().isEmpty || currentUserId == null) return;
-    setState(() => isSending = true);
-    try {
-      print('\n=== Sending Direct Message ===');
-      print('Recipient ID: ${widget.recipientId}');
-      print('Current User ID: $currentUserId');
-      print('Message: ${_messageController.text.trim()}');
-      print('Is Reply: ${_replyingToMessage != null}');
-      print('Reply To ID: ${_replyingToMessage?['_id']}');
-      
-      // Create temporary message
-      final tempMessage = {
-        '_id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
-        'message': _messageController.text.trim(),
-        'timestamp': DateTime.now().toIso8601String(),
-        'isRead': false,
-        'isSending': true,
-        'isReply': _replyingToMessage != null,
-        'replyToId': _replyingToMessage?['_id'],
-        'replyToMessage': _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-                'isFile': _replyingToMessage!['isFile'] ?? false,
-                'fileName': _replyingToMessage!['fileName'],
-                'fileType': _replyingToMessage!['fileType'],
-              }
-            : null,
-      };
+  /// แก้ไข: ปรับปรุงการ scroll ไปด้านล่าง
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients && mounted) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
 
-      // Add temporary message to list
+  /// แก้ไข: ปรับปรุงการส่งข้อความ
+  Future<void> _sendMessage() async {
+    if (_messageController.text.trim().isEmpty || currentUserId == null || isSending) {
+      return;
+    }
+
+    final messageText = _messageController.text.trim();
+    setState(() => isSending = true);
+
+    try {
+      // สร้างข้อความชั่วคราว
+      final tempMessage = _createTempMessage(messageText);
+
       setState(() {
         messages.add(tempMessage);
-        messages.sort((a, b) {
-          final aTime = DateTime.parse(a['isoString'] ?? a['createdAt'] ?? a['timestamp'] ?? DateTime.now().toIso8601String());
-          final bTime = DateTime.parse(b['isoString'] ?? b['createdAt'] ?? b['timestamp'] ?? DateTime.now().toIso8601String());
-          return aTime.compareTo(bTime);
-        });
+        _sortMessagesByTime();
+        _messageController.clear();
       });
 
+      _scrollToBottom();
+
+      // ส่งข้อความผ่าน API
       final response = await widget.apiService.sendDirectMessage(
         recipientId: widget.recipientId,
-        message: _messageController.text.trim(),
+        message: messageText,
         replyToId: _replyingToMessage?['_id'],
-        replyToMessage: _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-                'isFile': _replyingToMessage!['isFile'] ?? false,
-                'fileName': _replyingToMessage!['fileName'],
-                'fileType': _replyingToMessage!['fileType'],
-              }
+        replyToMessage: _replyingToMessage != null 
+            ? _createReplyToMessage(_replyingToMessage!) 
             : null,
       );
-      print('API Response: $response');
-      
-      if (response == null) {
-        throw Exception('No response from server');
-      }
-      print('response Art: $response');
-      if (response['message'] == 'ส่งข้อความสำเร็จ' || response['success'] == true) {
-        print('Message sent successfully');
-        if (mounted) {
-          setState(() {
-            _messageController.clear();
-            _clearReply();
-          });
-          // ScaffoldMessenger.of(context).showSnackBar(
-          //   const SnackBar(
-          //     content: Text('ส่งข้อความสำเร็จ'),
-          //     backgroundColor: Colors.green,
-          //     duration: Duration(seconds: 2),
-          //   ),
-          // );
-        }
-        return;
+
+      if (response['success'] == true) {
+        setState(() {
+          // ลบ temp message ออก
+          messages.removeWhere((m) =>
+            m['isSending'] == true &&
+            m['message'] == messageText &&
+            m['sender']?['employeeID'] == currentUserId
+          );
+          _clearReply();
+        });
+      } else {
+        throw Exception(response['message'] ?? 'ไม่สามารถส่งข้อความได้');
       }
 
-      throw Exception(response['message'] ?? 'ไม่สามารถส่งข้อความได้');
-      
     } catch (e) {
-      print('Error sending message: $e');
-      print('Stack trace: ${StackTrace.current}');
-      if (e.toString() != 'Exception: ส่งข้อความสำเร็จ') {
+      print('❌ Error sending message: $e');
+      // ลบข้อความชั่วคราวเมื่อเกิดข้อผิดพลาด
+      if (mounted) {
         setState(() {
           messages.removeWhere((m) => 
             m['isSending'] == true && 
-            m['sender']?['employeeID'] == currentUserId &&
-            m['message'] == _messageController.text.trim()
+            m['message'] == messageText &&
+            m['sender']?['employeeID'] == currentUserId
           );
         });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('ไม่สามารถส่งข้อความได้'),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถส่งข้อความได้: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -674,16 +714,339 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     }
   }
 
-  void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
+  /// สร้างข้อความชั่วคราว
+  Map<String, dynamic> _createTempMessage(String messageText) {
+    bool hasReply = false;
+    Map<String, dynamic>? replyToMessage;
+    String? replyToId;
+
+    if (_replyingToMessage != null) {
+      final sender = _replyingToMessage!['sender'];
+      final hasSender = sender != null && (sender['fullName']?.toString().trim().isNotEmpty ?? false);
+      final hasMsg = _replyingToMessage!['message']?.toString().trim().isNotEmpty ?? false;
+      hasReply = hasSender || hasMsg;
+      if (hasReply) {
+        replyToId = _replyingToMessage!['_id'];
+        replyToMessage = _createReplyToMessage(_replyingToMessage!);
+      }
+    }
+
+    return {
+      '_id': 'temp_${DateTime.now().millisecondsSinceEpoch}',
+      'message': messageText,
+      'timestamp': DateTime.now().toIso8601String(),
+      'isoString': DateTime.now().toIso8601String(),
+      'isRead': false,
+      'isSending': true,
+      'isImage': false,
+      'isFile': false,
+      'isReply': hasReply,
+      'replyToId': hasReply ? replyToId : null,
+      'replyToMessage': hasReply ? replyToMessage : null,
+      'sender': {
+        'employeeID': currentUserId,
+        'fullName': 'You',
+        'department': '',
+        'imgUrl': null,
+      },
+    };
+  }
+
+  /// สร้าง replyToMessage object
+  Map<String, dynamic> _createReplyToMessage(Map<String, dynamic> replyTo) {
+    final sender = replyTo['sender'];
+    final imageUrl = replyTo['imageUrl'];
+    final fileUrl = replyTo['fileUrl'];
+
+    return {
+      'messageId': replyTo['_id'],
+      'message': replyTo['message'] ?? '',
+      'sender': {
+        'employeeID': sender?['employeeID']?.toString() ?? 'unknown',
+        'fullName': sender?['fullName']?.toString() ?? 'Unknown User',
+        'department': sender?['department']?.toString() ?? '',
+        'imgUrl': sender?['imgUrl'],
+      },
+      'isImage': replyTo['isImage'] ?? false,
+      'imageUrl': imageUrl != null 
+          ? (imageUrl.toString().startsWith('http') 
+              ? imageUrl 
+              : '${ApiService.baseUrl}/${imageUrl.toString().startsWith('/') ? imageUrl.toString().substring(1) : imageUrl}')
+          : null,
+      'isFile': replyTo['isFile'] ?? false,
+      'fileName': replyTo['fileName'],
+      'fileType': replyTo['fileType'],
+      'fileUrl': fileUrl != null
+          ? (fileUrl.toString().startsWith('http')
+              ? fileUrl
+              : '${ApiService.baseUrl}/${fileUrl.toString().startsWith('/') ? fileUrl.toString().substring(1) : fileUrl}')
+          : null,
+      'timestamp': replyTo['timestamp'] ?? replyTo['isoString'] ?? DateTime.now().toIso8601String(),
+    };
+  }
+
+  /// ส่งไฟล์
+  Future<void> _sendFile() async {
+    if (_selectedFile == null || currentUserId == null) return;
+
+    setState(() => isSending = true);
+
+    try {
+      // สร้างข้อความชั่วคราว
+      final tempMessage = _createTempFileMessage();
+
+      setState(() {
+        messages.add(tempMessage);
+        _sortMessagesByTime();
+      });
+
+      _scrollToBottom();
+
+      // อัพโหลดไฟล์
+      final response = await widget.apiService.uploadFile(
+        _selectedFile!,
+        widget.recipientId,
+        currentUserId!,
+        message: _messageController.text.trim().isNotEmpty 
+            ? _messageController.text.trim() 
+            : null,
+        replyToId: _replyingToMessage?['_id'],
+        replyToMessage: _replyingToMessage != null 
+            ? _createReplyToMessage(_replyingToMessage!) 
+            : null,
       );
+
+      // อัพเดตข้อความชั่วคราว
+      if (mounted) {
+        setState(() {
+          final index = messages.indexWhere((m) => m['isSending'] == true);
+          if (index != -1) {
+            messages[index] = {
+              ...messages[index],
+              '_id': response['_id'],
+              'sender': response['sender'],
+              'timestamp': response['timestamp'],
+              'isRead': response['isRead'] ?? false,
+              'isSending': false,
+              'fileUrl': response['fileUrl'],
+              'fileName': response['fileName'],
+              'fileType': response['fileType'],
+            };
+            
+            if (response['message'] != null) {
+              messages[index]['message'] = response['message'];
+            }
+          }
+          
+          _selectedFile = null;
+          _clearReply();
+        });
+        
+        _messageController.clear();
+      }
+
+    } catch (e) {
+      print('❌ Error sending file: $e');
+      
+      String errorMessage = 'ไม่สามารถส่งไฟล์ได้';
+      if (e.toString().contains('File type not allowed')) {
+        errorMessage = 'กรุณาเลือกไฟล์ PDF, Word หรือ Excel เท่านั้น';
+      } else if (e.toString().contains('File too large')) {
+        errorMessage = 'ขนาดไฟล์ต้องไม่เกิน 5MB';
+      }
+
+      if (mounted) {
+        setState(() {
+          messages.removeWhere((m) => m['isSending'] == true);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isSending = false);
+      }
     }
   }
 
+  /// สร้างข้อความชั่วคราวสำหรับไฟล์
+  Map<String, dynamic> _createTempFileMessage() {
+    return {
+      '_id': 'temp_file_${DateTime.now().millisecondsSinceEpoch}',
+      'message': _messageController.text.trim().isNotEmpty 
+          ? _messageController.text.trim() 
+          : '',
+      'timestamp': DateTime.now().toIso8601String(),
+      'isoString': DateTime.now().toIso8601String(),
+      'isRead': false,
+      'isSending': true,
+      'isFile': true,
+      'fileName': _selectedFile!.name,
+      'fileType': _selectedFile!.extension,
+      'isReply': _replyingToMessage != null,
+      'replyToId': _replyingToMessage?['_id'],
+      'replyToMessage': _replyingToMessage != null 
+          ? _createReplyToMessage(_replyingToMessage!) 
+          : null,
+      'sender': {
+        'employeeID': currentUserId,
+        'fullName': 'You',
+        'department': '',
+        'imgUrl': null,
+      },
+    };
+  }
+
+  /// สร้างข้อความชั่วคราวสำหรับรูปภาพ
+  Map<String, dynamic> _createTempImageMessage() {
+    return {
+      '_id': 'temp_img_${DateTime.now().millisecondsSinceEpoch}',
+      'message': _messageController.text.trim().isNotEmpty 
+          ? _messageController.text.trim() 
+          : '',
+      'timestamp': DateTime.now().toIso8601String(),
+      'isoString': DateTime.now().toIso8601String(),
+      'isRead': false,
+      'isSending': true,
+      'isImage': true,
+      'imageUrl': null,
+      'isReply': _replyingToMessage != null,
+      'replyToId': _replyingToMessage?['_id'],
+      'replyToMessage': _replyingToMessage != null 
+          ? _createReplyToMessage(_replyingToMessage!) 
+          : null,
+      'sender': {
+        'employeeID': currentUserId,
+        'fullName': 'You',
+        'department': '',
+        'imgUrl': null,
+      },
+    };
+  }
+
+  /// ส่งรูปภาพ
+  Future<void> _sendImage() async {
+    if (_selectedImage == null || currentUserId == null || isSending) return;
+    
+    setState(() => isSending = true);
+    try {
+      // สร้างข้อความชั่วคราว
+      final tempMessage = _createTempImageMessage();
+      final tempMessageId = tempMessage['_id'];
+      final tempMessageText = tempMessage['message'];
+
+      setState(() {
+        messages.add(tempMessage);
+        _sortMessagesByTime();
+      });
+      _scrollToBottom();
+
+      // อัพโหลดรูปภาพ
+      final response = await widget.apiService.uploadDirectMessageImage(
+        _selectedImage!,
+        widget.recipientId,
+        currentUserId!,
+        message: tempMessageText.isNotEmpty ? tempMessageText : null,
+        replyToId: _replyingToMessage?['_id'],
+        replyToMessage: _replyingToMessage != null 
+            ? _createReplyToMessage(_replyingToMessage!) 
+            : null,
+      );
+
+      print('📸 Image upload response: $response');
+
+      // ถ้า response เป็น null หรือไม่มี _id (ซึ่งควรจะมีถ้าส่งสำเร็จ) ให้โยน error
+      if (response == null || response['_id'] == null) {
+        throw Exception('ไม่สามารถส่งรูปภาพได้');
+      }
+
+      // ถ้าส่งสำเร็จ ให้ลบข้อความชั่วคราว
+      setState(() {
+        messages.removeWhere((m) =>
+          m['isSending'] == true &&
+          m['_id'] == tempMessageId &&
+          m['sender']?['employeeID'] == currentUserId
+        );
+        _selectedImage = null;
+        _clearReply();
+        _messageController.clear();
+      });
+
+    } catch (e) {
+      print('❌ Error sending image: $e');
+      if (mounted) {
+        setState(() {
+          // ลบข้อความชั่วคราวเมื่อเกิดข้อผิดพลาด
+          messages.removeWhere((m) => 
+            m['isSending'] == true && 
+            m['sender']?['employeeID'] == currentUserId
+          );
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถส่งรูปภาพได้: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isSending = false);
+      }
+    }
+  }
+
+  /// ล้างการตอบกลับ
+  void _clearReply() {
+    setState(() {
+      _replyingToMessage = null;
+    });
+  }
+
+  /// ตั้งค่าการตอบกลับข้อความ
+  void _replyToMessage(Map<String, dynamic> message) {
+    setState(() {
+      _replyingToMessage = {
+        '_id': message['_id'],
+        'message': message['message'] ?? '',
+        'sender': message['sender'],
+        'isImage': message['isImage'] ?? false,
+        'imageUrl': message['imageUrl'],
+        'isFile': message['isFile'] ?? false,
+        'fileName': message['fileName'],
+        'fileType': message['fileType'],
+        'fileUrl': message['fileUrl'],
+        'timestamp': message['timestamp'] ?? message['isoString'],
+      };
+    });
+    _messageFocusNode.requestFocus();
+  }
+
+  /// เปิด URL
+  Future<void> _launchUrl(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (!await launchUrl(uri)) {
+        throw Exception('Could not launch URL');
+      }
+    } catch (e) {
+      print('❌ Error launching URL: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ไม่สามารถเปิดไฟล์ได้')),
+        );
+      }
+    }
+  }
+
+  /// เลือกรูปภาพ
   Future<void> _pickAndValidateImage() async {
     try {
       final XFile? image = await _picker.pickImage(
@@ -699,7 +1062,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         });
       }
     } catch (e) {
-      print('Error picking image: $e');
+      print('❌ Error picking image: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -711,6 +1074,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     }
   }
 
+  /// เลือกไฟล์
   Future<void> _pickAndValidateFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -721,8 +1085,8 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
       if (result != null) {
         final file = result.files.first;
-
-        // Validate file size (5MB limit)
+        
+        // ตรวจสอบขนาดไฟล์
         if (file.size > 5 * 1024 * 1024) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -740,7 +1104,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         });
       }
     } catch (e) {
-      print('Error picking file: $e');
+      print('❌ Error picking file: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -752,265 +1116,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     }
   }
 
-  void _clearReply() {
-    setState(() {
-      _replyingToMessage = null;
-    });
-  }
-
-  Widget _buildReplyPreview() {
-    if (_replyingToMessage == null) return const SizedBox.shrink();
-
-    final sender = _replyingToMessage!['sender'];
-    final senderName = sender?['fullName'] ?? 'Unknown User';
-    final isImage = _replyingToMessage!['isImage'] == true;
-    final isFile = _replyingToMessage!['isFile'] == true;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        border: Border(
-          top: BorderSide(color: Colors.grey[200]!),
-          bottom: BorderSide(color: Colors.grey[200]!),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 4,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-              children: [
-                Text(
-                  'ตอบกลับ $senderName',
-                  style: TextStyle(
-                        fontSize: 13,
-                    color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      onPressed: _clearReply,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      color: Colors.grey[600],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                if (isImage)
-                  Row(
-                    children: [
-                      Icon(Icons.image, size: 16, color: Colors.grey[600]),
-                      const SizedBox(width: 4),
-                Text(
-                        'รูปภาพ',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                    ],
-                  )
-                else if (isFile)
-                  Row(
-                    children: [
-                      Icon(_getFileIcon(_replyingToMessage!['fileType']), 
-                        size: 16, 
-                        color: _getFileColor(_replyingToMessage!['fileType'])),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          _replyingToMessage!['fileName'] ?? 'ไฟล์',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[700],
-                          ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  )
-                else
-                  Text(
-                    _replyingToMessage!['message'] ?? '',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey[700],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSelectedImagePreview() {
-    if (_selectedImage == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8, left: 16),
-      alignment: Alignment.centerLeft,
-      child: Stack(
-        children: [
-          Container(
-            height: 200,
-            width: 120,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              image: DecorationImage(
-                image: FileImage(_selectedImage!),
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () {
-                  setState(() {
-                    _selectedImage = null;
-                  });
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSelectedFilePreview() {
-    if (_selectedFile == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
-      alignment: Alignment.centerLeft,
-      child: Stack(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _getFileIcon(_selectedFile!.extension),
-                  color: _getFileColor(_selectedFile!.extension),
-                  size: 32,
-                ),
-                const SizedBox(width: 12),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _selectedFile!.name,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                      Text(
-                        _formatFileSize(_selectedFile!.size),
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 16),
-                onPressed: () {
-                  setState(() {
-                    _selectedFile = null;
-                  });
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  IconData _getFileIcon(String? extension) {
-    switch (extension?.toLowerCase()) {
-      case 'pdf':
-        return Icons.picture_as_pdf;
-      case 'doc':
-      case 'docx':
-        return Icons.description;
-      case 'xls':
-      case 'xlsx':
-        return Icons.table_chart;
-      default:
-        return Icons.insert_drive_file;
-    }
-  }
-
-  Color _getFileColor(String? extension) {
-    switch (extension?.toLowerCase()) {
-      case 'pdf':
-        return Colors.red;
-      case 'doc':
-      case 'docx':
-        return Colors.blue;
-      case 'xls':
-      case 'xlsx':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
+  /// แสดงเมนูข้อความ
   void _showMessageMenu(Map<String, dynamic> message, bool isCurrentUser) {
     showModalBottomSheet(
       context: context,
@@ -1043,29 +1149,25 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                 _replyToMessage(message);
               },
             ),
-            ListTile(
-              leading: Icon(Icons.copy, color: Colors.grey[700]),
-              title: const Text('คัดลอกข้อความ'),
-              onTap: () {
-                Navigator.pop(context);
-                if (message['message'] != null && message['message'].toString().trim().isNotEmpty) {
+            if (message['message'] != null && message['message'].toString().trim().isNotEmpty)
+              ListTile(
+                leading: Icon(Icons.copy, color: Colors.grey[700]),
+                title: const Text('คัดลอกข้อความ'),
+                onTap: () {
+                  Navigator.pop(context);
                   Clipboard.setData(ClipboardData(text: message['message']));
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
                   );
-                }
-              },
-            ),
+                },
+              ),
             if (isCurrentUser)
               ListTile(
                 leading: Icon(Icons.delete, color: Colors.red[700]),
                 title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
-                  // TODO: Implement message deletion
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('กำลังพัฒนาการลบข้อความ')),
-                  );
+                  await _deleteMessage(message['_id']);
                 },
               ),
           ],
@@ -1074,24 +1176,102 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     );
   }
 
-  void _replyToMessage(Map<String, dynamic> message) {
-    print('Replying to message: ${message['_id']}');
-    setState(() {
-      _replyingToMessage = {
-        '_id': message['_id'],
-        'message': message['message'] ?? '',
-        'sender': message['sender'],
-        'isImage': message['isImage'] ?? false,
-        'imageUrl': message['imageUrl'],
-        'isFile': message['isFile'] ?? false,
-        'fileName': message['fileName'],
-        'fileType': message['fileType'],
-      };
-    });
-    // Focus the message input field
-    _messageFocusNode.requestFocus();
+  /// ตรวจสอบว่าวันเดียวกันหรือไม่
+  bool _isSameDay(String? date1, String? date2) {
+    if (date1 == null || date2 == null) return false;
+    try {
+      final d1 = DateTime.parse(date1);
+      final d2 = DateTime.parse(date2);
+      return d1.year == d2.year && d1.month == d2.month && d1.day == d2.day;
+    } catch (e) {
+      return false;
+    }
   }
 
+  /// จัดรูปแบบวันที่
+  String _formatDateOnly(String? timestamp) {
+    if (timestamp == null) return '';
+    
+    try {
+      final date = DateTime.parse(timestamp);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final messageDate = DateTime(date.year, date.month, date.day);
+
+      if (messageDate == today) {
+        return 'วันนี้';
+      } else if (messageDate == today.subtract(const Duration(days: 1))) {
+        return 'เมื่อวาน';
+      } else {
+        return DateFormat('dd/MM/yyyy').format(date);
+      }
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /// จัดรูปแบบเวลา
+  String _formatMessageTime(String? timestamp) {
+    if (timestamp == null) return '';
+    
+    try {
+      final messageTime = DateTime.parse(timestamp);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final messageDate = DateTime(messageTime.year, messageTime.month, messageTime.day);
+
+      if (messageDate == today) {
+        return DateFormat('HH:mm').format(messageTime);
+      } else if (messageDate == today.subtract(const Duration(days: 1))) {
+        return 'เมื่อวาน ${DateFormat('HH:mm').format(messageTime)}';
+      } else {
+        return DateFormat('dd/MM HH:mm').format(messageTime);
+      }
+    } catch (e) {
+      return DateFormat('HH:mm').format(DateTime.now());
+    }
+  }
+
+  /// จัดรูปแบบขนาดไฟล์
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  /// รับไอคอนไฟล์
+  IconData _getFileIcon(String? extension) {
+    switch (extension?.toLowerCase()) {
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      case 'doc':
+      case 'docx':
+        return Icons.description;
+      case 'xls':
+      case 'xlsx':
+        return Icons.table_chart;
+      default:
+        return Icons.insert_drive_file;
+    }
+  }
+
+  /// รับสีไฟล์
+  Color _getFileColor(String? extension) {
+    switch (extension?.toLowerCase()) {
+      case 'pdf':
+        return Colors.red;
+      case 'doc':
+      case 'docx':
+        return Colors.blue;
+      case 'xls':
+      case 'xlsx':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  /// สร้าง widget แสดงการตอบกลับ
   Widget _buildReplyWidget(Map<String, dynamic> replyData) {
     final sender = replyData['sender'];
     final senderName = sender is Map
@@ -1103,6 +1283,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     final isFile = replyData['isFile'] == true;
     final fileName = replyData['fileName'];
     final fileType = replyData['fileType'];
+    final imageUrl = replyData['imageUrl'];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -1139,7 +1320,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           if (isImage)
             Row(
               children: [
-                if (replyData['imageUrl'] != null)
+                if (imageUrl != null)
                   Container(
                     width: 40,
                     height: 40,
@@ -1147,7 +1328,11 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(4),
                       image: DecorationImage(
-                        image: NetworkImage(replyData['imageUrl']),
+                        image: NetworkImage(
+                          imageUrl.toString().startsWith('http')
+                              ? imageUrl
+                              : '${ApiService.baseUrl}/${imageUrl.toString().startsWith('/') ? imageUrl.toString().substring(1) : imageUrl}'
+                        ),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -1193,7 +1378,240 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     );
   }
 
+  /// สร้าง widget แสดงการตอบกลับ
+  Widget _buildReplyPreview() {
+    if (_replyingToMessage == null) return const SizedBox.shrink();
+
+    final sender = _replyingToMessage!['sender'];
+    final senderName = sender?['fullName'] ?? 'Unknown User';
+    final isImage = _replyingToMessage!['isImage'] == true;
+    final isFile = _replyingToMessage!['isFile'] == true;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        border: Border(
+          top: BorderSide(color: Colors.grey[200]!),
+          bottom: BorderSide(color: Colors.grey[200]!),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'ตอบกลับ $senderName',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: _clearReply,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      color: Colors.grey[600],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                if (isImage)
+                  Row(
+                    children: [
+                      Icon(Icons.image, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'รูปภาพ',
+                        style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                      ),
+                    ],
+                  )
+                else if (isFile)
+                  Row(
+                    children: [
+                      Icon(_getFileIcon(_replyingToMessage!['fileType']), 
+                        size: 16, 
+                        color: _getFileColor(_replyingToMessage!['fileType'])),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          _replyingToMessage!['fileName'] ?? 'ไฟล์',
+                          style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Text(
+                    _replyingToMessage!['message'] ?? '',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// สร้าง widget แสดงรูปภาพที่เลือก
+  Widget _buildSelectedImagePreview() {
+    if (_selectedImage == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8, left: 16),
+      alignment: Alignment.centerLeft,
+      child: Stack(
+        children: [
+          Container(
+            height: 200,
+            width: 120,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              image: DecorationImage(
+                image: FileImage(_selectedImage!),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => setState(() => _selectedImage = null),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// สร้าง widget แสดงไฟล์ที่เลือก
+  Widget _buildSelectedFilePreview() {
+    if (_selectedFile == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
+      alignment: Alignment.centerLeft,
+      child: Stack(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _getFileIcon(_selectedFile!.extension),
+                  color: _getFileColor(_selectedFile!.extension),
+                  size: 32,
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _selectedFile!.name,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      Text(
+                        _formatFileSize(_selectedFile!.size),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 16),
+                onPressed: () => setState(() => _selectedFile = null),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// สร้าง widget แสดงข้อความ
   Widget _buildMessageBubble(Map<String, dynamic> message, bool isMe) {
+    final theme = Theme.of(context);
+
+    // เช็ก reply widget ก่อน
+    Widget? replyWidget;
+    if (message['isReply'] == true && message['replyToMessage'] != null && message['replyToMessage']['sender'] != null) {
+      final reply = message['replyToMessage'];
+      final hasReplyContent =
+        (reply['sender'] != null && (reply['sender']['fullName']?.toString().trim().isNotEmpty ?? false)) ||
+        (reply['message']?.toString().trim().isNotEmpty ?? false);
+
+      if (hasReplyContent) {
+        replyWidget = GestureDetector(
+          onTap: () {
+            final repliedMessageIndex = messages.indexWhere(
+              (m) => m['_id'] == message['replyToId'],
+            );
+            if (repliedMessageIndex != -1) {
+              _scrollController.animateTo(
+                repliedMessageIndex * 100.0,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: _buildReplyWidget(message['replyToMessage']),
+          ),
+        );
+      }
+    }
+
     return Container(
       margin: EdgeInsets.only(
         left: isMe ? 64 : 0,
@@ -1204,7 +1622,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         color: message['isSending'] == true
             ? Colors.grey[200]
             : isMe
-                ? const Color(0xFFE3F2FD)
+                ? const Color(0xFFC3F69D)
                 : Colors.white,
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(20),
@@ -1223,54 +1641,12 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Builder(
-                builder: (bubbleContext) => Container(
-                  decoration: BoxDecoration(
-                    color: isMe
-                        ? const Color.fromARGB(255, 199, 211, 232)
-                        : Colors.grey[200],
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: Icon(Icons.more_horiz, color: Colors.grey[700], size: 20),
-                    onPressed: () {
-                      _showMessageMenu(message, isMe);
-                    },
-                    tooltip: 'เมนู',
-                    padding: const EdgeInsets.all(6),
-                    constraints: const BoxConstraints(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (message['isReply'] == true && message['replyToMessage'] != null)
-            GestureDetector(
-              onTap: () {
-                // Scroll to replied message
-                final repliedMessageIndex = messages.indexWhere(
-                  (m) => m['_id'] == message['replyToId'],
-                );
-                if (repliedMessageIndex != -1) {
-                  _scrollController.animateTo(
-                    repliedMessageIndex * 100.0, // Approximate height
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOut,
-                  );
-                }
-              },
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: _buildReplyWidget(message['replyToMessage']),
-              ),
-            ),
+          if (replyWidget != null) replyWidget,
+          
+          // Image
           if (message['isImage'] == true && message['imageUrl'] != null)
             GestureDetector(
               onTap: () {
-                // TODO: Implement full screen image view
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('กำลังพัฒนาการดูรูปภาพเต็มหน้าจอ')),
                 );
@@ -1280,12 +1656,18 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   image: DecorationImage(
-                    image: NetworkImage(message['imageUrl']),
+                    image: NetworkImage(
+                      message['imageUrl'].toString().startsWith('http') 
+                          ? message['imageUrl'] 
+                          : '${ApiService.baseUrl}/${message['imageUrl'].toString().startsWith('/') ? message['imageUrl'].toString().substring(1) : message['imageUrl']}'
+                    ),
                     fit: BoxFit.cover,
                   ),
                 ),
               ),
             ),
+          
+          // File
           if (message['isFile'] == true && message['fileUrl'] != null)
             GestureDetector(
               onTap: () => _launchUrl(message['fileUrl']),
@@ -1331,6 +1713,8 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                 ),
               ),
             ),
+          
+          // Text message
           if (message['message'] != null && message['message'].toString().trim().isNotEmpty)
             SelectableText(
               message['message'],
@@ -1340,25 +1724,39 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                 height: 1.4,
               ),
             ),
+          
           const SizedBox(height: 4),
+          
+          // Time and menu button
           Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                _formatMessageTime(message['isoString'] ?? message['createdAt'] ?? message['timestamp']),
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[600],
+                _formatMessageTime(message['timestamp']),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
                 ),
               ),
-              if (isMe) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  message['isRead'] == true ? Icons.done_all : Icons.done,
-                  size: 14,
-                  color: message['isRead'] == true ? Colors.blue : Colors.grey[600],
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _showMessageMenu(message, isMe),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: theme.primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.more_horiz,
+                      size: 18,
+                      color: theme.primaryColor,
+                    ),
+                  ),
                 ),
-              ],
+              ),
             ],
           ),
         ],
@@ -1378,6 +1776,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         backgroundColor: Colors.white,
         title: Row(
           children: [
+            // Avatar
             if (widget.recipientImage != null)
               Hero(
                 tag: 'avatar_${widget.recipientId}',
@@ -1399,6 +1798,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                 ),
               ),
             const SizedBox(width: 8),
+            // Name and status
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1410,28 +1810,21 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                Text(
-                  isConnected ? 'ออนไลน์' : 'ออฟไลน์',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: isConnected ? Colors.green : Colors.grey,
-                    fontSize: 12,
-                  ),
-                ),
+                // Text(
+                //   isConnected ? 'ออนไลน์' : isConnecting ? 'กำลังเชื่อมต่อ...' : 'ออฟไลน์',
+                //   style: theme.textTheme.bodySmall?.copyWith(
+                //     color: isConnected 
+                //         ? Colors.green 
+                //         : isConnecting 
+                //             ? Colors.orange 
+                //             : Colors.grey,
+                //     fontSize: 12,
+                //   ),
+                // ),
               ],
             ),
           ],
         ),
-        actions: [
-          // IconButton(
-          //   icon: const Icon(Icons.more_vert, color: Colors.black87),
-          //   onPressed: () {
-          //     // TODO: Implement more options menu
-          //     ScaffoldMessenger.of(context).showSnackBar(
-          //       const SnackBar(content: Text('กำลังพัฒนาหน้าเมนูเพิ่มเติม')),
-          //     );
-          //   },
-          // ),
-        ],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -1439,6 +1832,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         ),
         child: Column(
           children: [
+            // Messages list
             Expanded(
               child: isLoading
                   ? Center(
@@ -1446,148 +1840,166 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                         color: colorScheme.primary,
                       ),
                     )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isDesktop ? 24 : 16,
-                        vertical: isDesktop ? 12 : 8,
-                      ),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        if (index >= messages.length) {
-                          return const SizedBox.shrink();
-                        }
-                        final message = messages[index];
-                        final sender = message['sender'];
-                        final senderId = sender?['employeeID']?.toString();
-                        final isMe = senderId != null && currentUserId != null && senderId == currentUserId;
+                  : messages.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.chat_bubble_outline,
+                                size: 64,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'ยังไม่มีข้อความ',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'เริ่มต้นการสนทนากับ ${widget.recipientName}',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isDesktop ? 24 : 16,
+                            vertical: isDesktop ? 12 : 8,
+                          ),
+                          itemCount: messages.length,
+                          itemBuilder: (context, index) {
+                            if (index >= messages.length) {
+                              return const SizedBox.shrink();
+                            }
+                            
+                            final message = messages[index];
+                            final sender = message['sender'];
+                            final senderId = sender?['employeeID']?.toString();
+                            final isMe = senderId != null && currentUserId != null && senderId == currentUserId;
 
-                        // Add date separator if needed
-                        Widget? dateSeparator;
-                        if (index > 0) {
-                          final currentMessage = messages[index];
-                          final previousMessage = messages[index - 1];
-                          if (!_isSameDay(
-                            currentMessage['isoString'] ?? currentMessage['createdAt'] ?? currentMessage['timestamp'],
-                            previousMessage['isoString'] ?? previousMessage['createdAt'] ?? previousMessage['timestamp'],
-                          )) {
-                            dateSeparator = Container(
-                              margin: const EdgeInsets.symmetric(vertical: 16),
-                              child: Center(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[200],
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    _formatDateOnly(message['isoString'] ?? message['createdAt'] ?? message['timestamp']),
-                                    style: TextStyle(
-                                      color: Colors.grey[700],
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
+                            // Date separator
+                            Widget? dateSeparator;
+                            if (index == 0 || 
+                                (index > 0 && !_isSameDay(
+                                  message['timestamp'],
+                                  messages[index - 1]['timestamp'],
+                                ))) {
+                              dateSeparator = Container(
+                                margin: const EdgeInsets.symmetric(vertical: 8),
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[200],
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      _formatDateOnly(message['timestamp']),
+                                      style: TextStyle(
+                                        color: Colors.grey[700],
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            );
-                          }
-                        }
+                              );
+                            }
 
-                        return Column(
-                          children: [
-                            if (dateSeparator != null) dateSeparator,
-                            Padding(
-                              padding: EdgeInsets.symmetric(
-                                vertical: isDesktop ? 6 : 4,
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: isMe
-                                    ? MainAxisAlignment.end
-                                    : MainAxisAlignment.start,
-                                children: [
-                                  if (!isMe) ...[
-                                    CircleAvatar(
-                                      radius: 16,
-                                      backgroundImage: sender?['imgUrl'] != null
-                                          ? NetworkImage(sender!['imgUrl'])
-                                          : null,
-                                      backgroundColor: colorScheme.primary,
-                                      child: sender?['imgUrl'] == null
-                                          ? Text(
-                                              sender?['fullName']?[0].toUpperCase() ?? '?',
-                                              style: TextStyle(
-                                                color: colorScheme.onPrimary,
-                                                fontSize: 14,
-                                              ),
-                                            )
-                                          : null,
-                                    ),
-                                    const SizedBox(width: 8),
-                                  ],
-                                  Flexible(
-                                    child: Column(
-                                      crossAxisAlignment: isMe
-                                          ? CrossAxisAlignment.end
-                                          : CrossAxisAlignment.start,
-                                      children: [
-                                        if (!isMe)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              left: 8,
-                                              bottom: 4,
-                                            ),
-                                            child: Text(
-                                              sender?['fullName'] ?? 'Unknown',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey[600],
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ),
-                                        _buildMessageBubble(message, isMe),
-                                      ],
-                                    ),
+                            return Column(
+                              children: [
+                                if (dateSeparator != null) dateSeparator,
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    vertical: isDesktop ? 4 : 2,
                                   ),
-                                  if (isMe) ...[
-                                    const SizedBox(width: 8),
-                                    CircleAvatar(
-                                      radius: 16,
-                                      backgroundImage: sender?['imgUrl'] != null
-                                          ? NetworkImage(sender!['imgUrl'])
-                                          : null,
-                                      backgroundColor: colorScheme.primary,
-                                      child: sender?['imgUrl'] == null
-                                          ? Text(
-                                              sender?['fullName']?[0].toUpperCase() ?? '?',
-                                              style: TextStyle(
-                                                color: colorScheme.onPrimary,
-                                                fontSize: 14,
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: isMe
+                                        ? MainAxisAlignment.end
+                                        : MainAxisAlignment.start,
+                                    children: [
+                                      // Avatar for other user only
+                                      if (!isMe) ...[
+                                        CircleAvatar(
+                                          radius: 16,
+                                          backgroundImage: sender?['imgUrl'] != null
+                                              ? NetworkImage(sender!['imgUrl'])
+                                              : null,
+                                          backgroundColor: colorScheme.primary,
+                                          child: sender?['imgUrl'] == null
+                                              ? Text(
+                                                  sender?['fullName']?[0].toUpperCase() ?? '?',
+                                                  style: TextStyle(
+                                                    color: colorScheme.onPrimary,
+                                                    fontSize: 14,
+                                                  ),
+                                                )
+                                              : null,
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      
+                                      // Message bubble
+                                      Flexible(
+                                        child: Column(
+                                          crossAxisAlignment: isMe
+                                              ? CrossAxisAlignment.end
+                                              : CrossAxisAlignment.start,
+                                          children: [
+                                            // Sender name (for others)
+                                            if (!isMe)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  left: 4,
+                                                  bottom: 2,
+                                                ),
+                                                child: Text(
+                                                  sender?['fullName'] ?? 'Unknown',
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    color: Colors.black87,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
                                               ),
-                                            )
-                                          : null,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
+                                            _buildMessageBubble(message, isMe),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
             ),
+            
+            // File previews
             if (_selectedFile != null) _buildSelectedFilePreview(),
             if (_selectedImage != null) _buildSelectedImagePreview(),
+            
+            // Reply preview
             if (_replyingToMessage != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _buildReplyPreview(),
               ),
+            
+            // Input area
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -1602,6 +2014,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
               ),
               child: Row(
                 children: [
+                  // Image button
                   Container(
                     decoration: BoxDecoration(
                       color: _selectedImage != null
@@ -1618,10 +2031,14 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                         size: 28,
                       ),
                       tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
-                      onPressed: _selectedImage != null ? _sendImage : _pickAndValidateImage,
+                      onPressed: _selectedImage != null 
+                          ? _sendImage 
+                          : _pickAndValidateImage,
                     ),
                   ),
                   const SizedBox(width: 2),
+                  
+                  // File button
                   Container(
                     decoration: BoxDecoration(
                       color: _selectedFile != null
@@ -1631,17 +2048,23 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                     ),
                     child: IconButton(
                       icon: Icon(
-                        _selectedFile != null ? Icons.attach_file : Icons.attach_file_outlined,
+                        _selectedFile != null 
+                            ? Icons.attach_file 
+                            : Icons.attach_file_outlined,
                         color: _selectedFile != null
                             ? colorScheme.primary
                             : Colors.grey[600],
                         size: 28,
                       ),
                       tooltip: _selectedFile != null ? 'ส่งไฟล์' : 'เลือกไฟล์',
-                      onPressed: _selectedFile != null ? _sendFile : _pickAndValidateFile,
+                      onPressed: _selectedFile != null 
+                          ? _sendFile 
+                          : _pickAndValidateFile,
                     ),
                   ),
                   const SizedBox(width: 2),
+                  
+                  // Text input
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
@@ -1666,10 +2089,17 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                             vertical: 12,
                           ),
                         ),
+                        onSubmitted: (_) {
+                          if (_messageController.text.trim().isNotEmpty) {
+                            _sendMessage();
+                          }
+                        },
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
+                  
+                  // Send button
                   if (_messageController.text.isNotEmpty ||
                       _selectedImage != null ||
                       _selectedFile != null)
@@ -1715,317 +2145,21 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     );
   }
 
-  String _formatDateOnly(String? timestamp) {
-    if (timestamp == null) return '';
+  Future<void> _deleteMessage(String messageId) async {
+    if (currentUserId == null) return;
     try {
-      // Use isoString from API response
-      final date = DateTime.parse(timestamp);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final messageDate = DateTime(date.year, date.month, date.day);
-
-      if (messageDate == today) {
-        return 'วันนี้';
-      } else if (messageDate == today.subtract(const Duration(days: 1))) {
-        return 'เมื่อวาน';
-      } else {
-        return DateFormat('dd/MM/yyyy').format(date);
-      }
-    } catch (e) {
-      print('Error formatting date: $e');
-      return '';
-    }
-  }
-
-  String _formatMessageTime(String timestamp) {
-    try {
-      // Use isoString from API response
-      final messageTime = DateTime.parse(timestamp);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final messageDate = DateTime(
-        messageTime.year,
-        messageTime.month,
-        messageTime.day,
+      final conversationId = '${currentUserId}_${widget.recipientId}';
+      await widget.apiService.deleteDirectMessage(messageId, conversationId);
+      setState(() {
+        messages.removeWhere((m) => m['_id'] == messageId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ลบข้อความสำเร็จ')),
       );
-
-      // ถ้าเป็นวันเดียวกัน แสดงเฉพาะเวลา
-      if (messageDate == today) {
-        return DateFormat('HH:mm').format(messageTime);
-      }
-      // ถ้าเป็นเมื่อวาน
-      else if (messageDate == today.subtract(const Duration(days: 1))) {
-        return 'เมื่อวาน ${DateFormat('HH:mm').format(messageTime)}';
-      }
-      // ถ้าเป็นวันอื่น ๆ
-      else {
-        return DateFormat('dd/MM HH:mm').format(messageTime);
-      }
     } catch (e) {
-      print('Error formatting time: $e');
-      return DateFormat('HH:mm').format(DateTime.now());
-    }
-  }
-
-  bool _isSameDay(String? date1, String? date2) {
-    if (date1 == null || date2 == null) return false;
-    try {
-      final d1 = DateTime.parse(date1);
-      final d2 = DateTime.parse(date2);
-      return d1.year == d2.year && d1.month == d2.month && d1.day == d2.day;
-    } catch (e) {
-      print('Error comparing dates: $e');
-      return false;
-    }
-  }
-
-  Future<void> _launchUrl(String url) async {
-    if (!await launchUrl(Uri.parse(url))) {
-      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่สามารถเปิดไฟล์ได้')),
-        );
-      }
-    }
-  }
-
-  Future<void> _sendImage() async {
-    if (_selectedImage == null || currentUserId == null) return;
-
-                          setState(() {
-      isSending = true;
-    });
-
-    try {
-      // Create temporary message
-      final tempMessage = {
-        '_id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
-        'timestamp': DateTime.now().toIso8601String(),
-        'isRead': false,
-        'isSending': true,
-        'isImage': true,
-        'imageUrl': null,
-        'isReply': _replyingToMessage != null,
-        'replyToId': _replyingToMessage?['_id'],
-        'replyToMessage': _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
-            : null,
-      };
-      if (_messageController.text.trim().isNotEmpty) {
-        tempMessage['message'] = _messageController.text.trim();
-      }
-
-      // Add temporary message to end of list
-      setState(() {
-        messages.add(tempMessage);
-      });
-
-      // Upload image with optional message
-      final response = await widget.apiService.uploadImage(
-        _selectedImage!,
-        widget.recipientId,
-        currentUserId!,
-        message: _messageController.text.trim().isNotEmpty
-            ? _messageController.text.trim()
-            : null,
-        replyToId: _replyingToMessage?['_id'],
-        replyToMessage: _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
-            : null,
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: ${e.toString()}')),
       );
-
-      // Update temporary message with actual data
-      setState(() {
-        final index = messages.indexWhere((m) => m['isSending'] == true);
-        if (index != -1) {
-          messages[index] = {
-            ...messages[index],
-            '_id': response['_id'],
-            'sender': response['sender'],
-            'timestamp': response['timestamp'],
-            'isRead': response['isRead'] ?? false,
-            'isSending': false,
-            'isImage': true,
-            'imageUrl': response['imageUrl'],
-            'isReply': response['isReply'] ?? false,
-            'replyToId': response['replyToId'],
-            'replyToMessage': response['replyToMessage'],
-          };
-          if (response['message'] != null &&
-              response['message'].toString().trim().isNotEmpty) {
-            messages[index]['message'] = response['message'];
-          }
-        }
-      });
-
-      // Reset image selection and reply
-      setState(() {
-        _selectedImage = null;
-        _clearReply();
-      });
-      _messageController.clear();
-    } catch (e) {
-      print('Error sending image: $e');
-      // Remove temporary message on error
-      setState(() {
-        messages.removeWhere((m) => m['isSending'] == true);
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ไม่สามารถส่งรูปภาพได้'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          isSending = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _sendFile() async {
-    if (_selectedFile == null || currentUserId == null) return;
-
-    setState(() {
-      isSending = true;
-    });
-
-    try {
-      // Create temporary message
-      final tempMessage = {
-        '_id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'sender': {'employeeID': currentUserId, 'fullName': 'You'},
-        'timestamp': DateTime.now().toIso8601String(),
-        'isRead': false,
-        'isSending': true,
-        'isFile': true,
-        'fileName': _selectedFile!.name,
-        'fileType': _selectedFile!.extension,
-        'isReply': _replyingToMessage != null,
-        'replyToId': _replyingToMessage?['_id'],
-        'replyToMessage': _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
-            : null,
-      };
-      if (_messageController.text.trim().isNotEmpty) {
-        tempMessage['message'] = _messageController.text.trim();
-      }
-
-      // Add temporary message to end of list
-      setState(() {
-        messages.add(tempMessage);
-      });
-
-      // Upload file with optional message
-      final response = await widget.apiService.uploadFile(
-        _selectedFile!,
-        widget.recipientId,
-        currentUserId!,
-        message: _messageController.text.trim().isNotEmpty
-            ? _messageController.text.trim()
-            : null,
-        replyToId: _replyingToMessage?['_id'],
-        replyToMessage: _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
-            : null,
-      );
-
-      // Update temporary message with actual data
-      setState(() {
-        final index = messages.indexWhere((m) => m['isSending'] == true);
-        if (index != -1) {
-          messages[index] = {
-            ...messages[index],
-            '_id': response['_id'],
-            'sender': response['sender'],
-            'timestamp': response['timestamp'],
-            'isRead': response['isRead'] ?? false,
-            'isSending': false,
-            'isFile': true,
-            'fileUrl': response['fileUrl'],
-            'fileName': response['fileName'],
-            'fileType': response['fileType'],
-            'isReply': response['isReply'] ?? false,
-            'replyToId': response['replyToId'],
-            'replyToMessage': response['replyToMessage'],
-          };
-          if (response['message'] != null &&
-              response['message'].toString().trim().isNotEmpty) {
-            messages[index]['message'] = response['message'];
-          }
-        }
-      });
-
-      // Reset file selection and reply
-      setState(() {
-        _selectedFile = null;
-        _clearReply();
-      });
-      _messageController.clear();
-    } catch (e) {
-      print('Error sending file: $e');
-      String errorMessage = 'ไม่สามารถส่งไฟล์ได้';
-
-      if (e.toString().contains('File type not allowed')) {
-        errorMessage = 'กรุณาเลือกไฟล์ PDF, Word หรือ Excel เท่านั้น';
-      } else if (e.toString().contains('File too large')) {
-        errorMessage = 'ขนาดไฟล์ต้องไม่เกิน 5MB';
-      }
-
-      // Remove temporary message on error
-      setState(() {
-        messages.removeWhere((m) => m['isSending'] == true);
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'ลองอีกครั้ง',
-              textColor: Colors.white,
-              onPressed: () {
-                if (_selectedFile != null) {
-                  _sendFile();
-                }
-              },
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          isSending = false;
-        });
-      }
     }
   }
 }

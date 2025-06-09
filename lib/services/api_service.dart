@@ -725,29 +725,51 @@ class ApiService {
     Map<String, dynamic>? replyToMessage,
   }) async {
     try {
-      print('=== Uploading File ===');
-      print('Room ID: $roomId');
-      print('Employee ID: $employeeId');
-      print('File name: ${file.name}');
-      print('File size: ${file.size}');
-      print('File extension: ${file.extension}');
-      print('Optional message: $message');
-      print('Reply to ID: $replyToId');
+      print('\n=== Starting File Upload ===');
+      print('Request Details:');
+      print('- Endpoint: $baseUrl/api/messages/upload-file');
+      print('- Method: POST');
+      print('- Content-Type: multipart/form-data');
+      print('\nFile Details:');
+      print('- Original Name: ${file.name}');
+      print('- Size: ${file.size} bytes');
+      print('- Extension: ${file.extension}');
+      print('- Path: ${file.path}');
+      print('\nParameters:');
+      print('- Room ID: $roomId');
+      print('- Employee ID: $employeeId');
+      print('- Message: $message');
+      print('- Reply To ID: $replyToId');
+
+      // Validate file exists and is readable
+      final fileObj = File(file.path!);
+      if (!await fileObj.exists()) {
+        throw Exception('File does not exist at path: ${file.path}');
+      }
 
       // Create multipart request
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('$baseUrl/api/upload-file'),
+        Uri.parse('$baseUrl/api/messages/upload-file'),
+      );
+
+      // Read file bytes and validate
+      final fileBytes = await fileObj.readAsBytes();
+      print('\nFile Validation:');
+      print('- File exists: true');
+      print('- File readable: true');
+      print('- Bytes read: ${fileBytes.length}');
+
+      // Create multipart file with explicit content type and charset
+      final multipartFile = await http.MultipartFile.fromPath(
+        'file',
+        file.path!,
+        filename: file.name,
+        contentType: MediaType.parse('application/${file.extension ?? 'octet-stream'}'),
       );
 
       // Add file to request
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          file.path!,
-          filename: file.name,
-        ),
-      );
+      request.files.add(multipartFile);
 
       // Add other fields
       request.fields.addAll({
@@ -758,20 +780,53 @@ class ApiService {
         if (replyToMessage != null) 'replyToMessage': jsonEncode(replyToMessage),
       });
 
+      // Log complete request details
+      print('\nRequest Details:');
+      print('Headers:');
+      request.headers.forEach((key, value) {
+        print('- $key: $value');
+      });
+      print('\nFields:');
+      request.fields.forEach((key, value) {
+        print('- $key: $value');
+      });
+      print('\nFiles:');
+      request.files.forEach((file) {
+        print('- Field: ${file.field}');
+        print('  Original Filename: ${file.filename}');
+        print('  Content-Type: ${file.contentType}');
+        print('  Length: ${file.length} bytes');
+      });
+
       // Send request
+      print('\nSending request...');
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
+      print('\nResponse Details:');
+      print('- Status Code: ${response.statusCode}');
+      print('- Headers:');
+      response.headers.forEach((key, value) {
+        print('  $key: $value');
+      });
+      print('- Body: ${response.body}');
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        print('File upload response: ${data['data']}');
+        print('\nUpload successful:');
+        print('- Response data: ${data['data']}');
         return data['data'];
       } else {
         final error = jsonDecode(response.body);
+        print('\nUpload failed:');
+        print('- Error: ${error['message'] ?? 'ไม่สามารถอัพโหลดไฟล์ได้'}');
         throw Exception(error['message'] ?? 'ไม่สามารถอัพโหลดไฟล์ได้');
       }
     } catch (e) {
-      print('Error uploading file: $e');
+      print('\n❌ Error in file upload:');
+      print('- Type: ${e.runtimeType}');
+      print('- Message: $e');
+      print('- Stack trace: ${StackTrace.current}');
       rethrow;
     }
   }
@@ -966,52 +1021,139 @@ class ApiService {
 
   Future<void> deleteDirectMessage(String messageId, String conversationId) async {
     await ensureInitialized();
-    print('\n=== Deleting Direct Message ===');
-    print('Message ID: $messageId');
-    print('Conversation ID: $conversationId');
-    print('Socket connected: ${socket?.connected}');
-    print('Socket ID: ${socket?.id}');
+    final senderId = await getUserId();
+    if (senderId == null) throw Exception('User ID not found');
 
+    final url = Uri.parse('$baseUrl/api/direct-messages/$messageId?employeeId=$senderId');
+    final response = await http.delete(url);
+
+    print('Delete message response: ${response.body}');
+
+    if (response.statusCode != 200) {
+      final errorData = jsonDecode(response.body);
+      throw Exception(errorData['error'] ?? 'Failed to delete message');
+    }
+  }
+
+  /// อัพโหลดรูปภาพใน direct message
+  Future<Map<String, dynamic>> uploadDirectMessageImage(
+    File imageFile,
+    String recipientId,
+    String employeeId, {
+    String? message,
+    String? replyToId,
+    Map<String, dynamic>? replyToMessage,
+  }) async {
     try {
-      final senderId = await getUserId();
-      if (senderId == null) {
-        throw Exception('User ID not found');
+      print('=== Uploading Direct Message Image ===');
+      print('Recipient ID: $recipientId');
+      print('Employee ID: $employeeId');
+      print('File path: ${imageFile.path}');
+      print('Message: $message');
+      print('Reply To ID: $replyToId');
+      print('Reply Message: $replyToMessage');
+
+      // Get file extension and determine mimetype
+      final fileExtension = imageFile.path.split('.').last.toLowerCase();
+      String mimeType;
+      switch (fileExtension) {
+        case 'jpg':
+        case 'jpeg':
+          mimeType = 'image/jpeg';
+          break;
+        case 'png':
+          mimeType = 'image/png';
+          break;
+        case 'gif':
+          mimeType = 'image/gif';
+          break;
+        case 'webp':
+          mimeType = 'image/webp';
+          break;
+        default:
+          throw Exception('Unsupported image format: $fileExtension');
       }
 
-      if (socket?.connected != true) {
-        print('Socket not connected, attempting to reconnect...');
-        await _initSocket();
-      }
+      print('File extension: $fileExtension');
+      print('Mime type: $mimeType');
 
-      // Emit deletion through socket
-      socket?.emit('deleteDirectMessage', {
-        'messageId': messageId,
-        'senderId': senderId,
-        'conversationId': conversationId,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-
-      // Also delete through HTTP for persistence
-      final response = await http.delete(
-        Uri.parse('$baseUrl/api/direct-messages/$messageId'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'senderId': senderId,
-          'conversationId': conversationId,
-        }),
+      // Create multipart request
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/direct-messages/upload'),
       );
 
-      print('Delete message response: ${response.body}');
+      // Add file to request with explicit mimetype
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'image',
+          imageFile.path,
+          contentType: MediaType.parse(mimeType),
+        ),
+      );
 
-      if (response.statusCode != 200) {
-        final errorData = jsonDecode(response.body);
-        throw Exception(errorData['error'] ?? 'Failed to delete message');
+      // Add other fields
+      request.fields.addAll({
+        'recipientId': recipientId,
+        'employeeId': employeeId,
+        'replyToSender': 'false',  // Add default value for replyToSender
+        if (message != null && message.isNotEmpty) 'message': message,
+        if (replyToId != null) 'replyToId': replyToId,
+        if (replyToMessage != null) 'replyToMessage': jsonEncode(replyToMessage),
+      });
+
+      print('Sending upload request...');
+      print('Request fields: ${request.fields}');
+      print(
+        'Request files: ${request.files.map((f) => '${f.filename} (${f.contentType})').join(', ')}',
+      );
+
+      // Send request
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      print('Upload response status: ${response.statusCode}');
+      print('Upload response headers: ${response.headers}');
+      print('Upload response body: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {  // Accept both 200 and 201
+        try {
+          final responseData = json.decode(response.body);
+          if (responseData['success'] == true) {
+            // Ensure imageUrl has the full base URL
+            if (responseData['data'] != null && responseData['data']['imageUrl'] != null) {
+              final imageUrl = responseData['data']['imageUrl'];
+              if (imageUrl.startsWith('/')) {
+                responseData['data']['imageUrl'] = '$baseUrl$imageUrl';
+              }
+            }
+            return responseData['data'];
+          } else {
+            throw Exception(
+              responseData['message'] ?? 'Failed to upload image',
+            );
+          }
+        } catch (e) {
+          print('Error parsing response: $e');
+          throw Exception('Invalid response format from server');
+        }
+      } else {
+        try {
+          final errorData = json.decode(response.body);
+          throw Exception(
+            errorData['message'] ??
+                'Failed to upload image: ${response.statusCode}',
+          );
+        } catch (e) {
+          print('Error parsing error response: $e');
+          throw Exception(
+            'Failed to upload image: ${response.statusCode} - ${response.body}',
+          );
+        }
       }
     } catch (e) {
-      print('=== Error Deleting Direct Message ===');
-      print('Error details: $e');
-      print('Stack trace: ${StackTrace.current}');
-      rethrow;
+      print('Error uploading image: $e');
+      throw Exception('Failed to upload image: $e');
     }
   }
 }
