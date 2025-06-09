@@ -1048,6 +1048,41 @@ class ApiService {
     }
   }
 
+  Future<void> deleteMessage(String messageId) async {
+    await ensureInitialized();
+    final senderId = await getUserId();
+    if (senderId == null) throw Exception('User ID not found');
+
+    print('=== Delete Message API Call ===');
+    print('Message ID: $messageId');
+    print('Employee ID: $senderId');
+    print('URL: $baseUrl/api/messages/$messageId');
+
+    final response = await http.delete(
+      Uri.parse('$baseUrl/api/messages/$messageId'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode({
+        'employeeId': senderId,
+      }),
+    );
+
+    print('Delete message response status: ${response.statusCode}');
+    print('Delete message response body: ${response.body}');
+
+    if (response.statusCode != 200) {
+      Map<String, dynamic> errorData;
+      try {
+        errorData = jsonDecode(response.body);
+      } catch (e) {
+        errorData = {'message': 'ไม่สามารถลบข้อความได้'};
+      }
+      throw Exception(errorData['message'] ?? 'ไม่สามารถลบข้อความได้');
+    }
+  }
+
   /// อัพโหลดรูปภาพใน direct message
   Future<Map<String, dynamic>> uploadDirectMessageImage(
     File imageFile,

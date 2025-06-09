@@ -3125,27 +3125,25 @@ class _ChatPageState extends State<ChatPage> {
         );
       }
 
-      // Call API to delete message
-      final response = await http.delete(
-        Uri.parse('${ApiService.baseUrl}/api/messages/$messageId'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'employeeId': currentUserId}),
-      );
+      print('=== Delete Message Debug ===');
+      print('Message ID: $messageId');
+      print('Employee ID: $currentUserId');
 
-      if (response.statusCode == 200) {
-        // Remove message from local state
-        setState(() {
-          messages.removeWhere((m) => m['_id'] == messageId);
-        });
+      // Use ApiService to delete message
+      await widget.apiService.deleteMessage(messageId);
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('ลบข้อความสำเร็จ')),
-          );
-        }
-      } else {
-        final error = jsonDecode(response.body);
-        throw Exception(error['message'] ?? 'ไม่สามารถลบข้อความได้');
+      // Remove message from local state
+      setState(() {
+        messages.removeWhere((m) => m['_id'] == messageId);
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ลบข้อความสำเร็จ'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       print('Error deleting message: $e');
@@ -3154,6 +3152,7 @@ class _ChatPageState extends State<ChatPage> {
           SnackBar(
             content: Text('ไม่สามารถลบข้อความได้: ${e.toString()}'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }

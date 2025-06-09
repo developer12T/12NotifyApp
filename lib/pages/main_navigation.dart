@@ -332,6 +332,9 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
             selectedIndex: _selectedIndex,
             onItemTapped: _onItemTapped,
             userName: _userName,
+            announcementBadgeCount: 0, // สามารถแก้ไขให้ดึงค่าจริงได้ถ้ามี
+            groupBadgeCount: _roomsUnreadCount,
+            chatBadgeCount: _directMessagesUnreadCount,
           ),
           Expanded(
             child: IndexedStack(

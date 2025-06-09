@@ -75,10 +75,10 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
     print('AnnouncementsPage: Socket ID: ${_socketService.socket.id}');
     
     // Test the subscription
-    _socketService.testAnnouncementsSubscription();
+    // _socketService.testAnnouncementsSubscription();
     
     // Test notification service
-    _socketService.testNotificationService();
+    // _socketService.testNotificationService();
     
     // Test background notification
     // _socketService.testBackgroundNotification();

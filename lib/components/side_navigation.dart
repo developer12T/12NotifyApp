@@ -5,6 +5,8 @@ class SideNavigation extends StatelessWidget {
   final Function(int) onItemTapped;
   final String userName;
   final int announcementBadgeCount;
+  final int groupBadgeCount;
+  final int chatBadgeCount;
 
   const SideNavigation({
     Key? key,
@@ -12,6 +14,8 @@ class SideNavigation extends StatelessWidget {
     required this.onItemTapped,
     required this.userName,
     this.announcementBadgeCount = 0,
+    this.groupBadgeCount = 0,
+    this.chatBadgeCount = 0,
   }) : super(key: key);
 
   @override
@@ -38,6 +42,7 @@ class SideNavigation extends StatelessWidget {
                   context,
                   icon: Icons.people_alt,
                   index: 1,
+                  badge: groupBadgeCount,
                   tooltip: 'กลุ่ม',
                 ),
                 const SizedBox(height: 12),
@@ -45,6 +50,7 @@ class SideNavigation extends StatelessWidget {
                   context,
                   icon: Icons.question_answer,
                   index: 2,
+                  badge: chatBadgeCount,
                   tooltip: 'แชท',
                 ),
                 const SizedBox(height: 12),

@@ -348,19 +348,19 @@ class SocketService {
   }
 
   // Add method to test notification service
-  void testNotificationService() {
-    print('=== SocketService: Testing Notification Service ===');
-    try {
-      _notiService.showNotification(
-        title: 'ทดสอบการแจ้งเตือน',
-        body: 'นี่คือการทดสอบการแจ้งเตือนจาก SocketService',
-        payload: json.encode({'type': 'test', 'message': 'test notification'}),
-      );
-      print('SocketService: Test notification sent successfully');
-    } catch (e) {
-      print('SocketService: Error sending test notification: $e');
-    }
-  }
+  // void testNotificationService() {
+  //   print('=== SocketService: Testing Notification Service ===');
+  //   try {
+  //     _notiService.showNotification(
+  //       title: 'ทดสอบการแจ้งเตือน',
+  //       body: 'นี่คือการทดสอบการแจ้งเตือนจาก SocketService',
+  //       payload: json.encode({'type': 'test', 'message': 'test notification'}),
+  //     );
+  //     print('SocketService: Test notification sent successfully');
+  //   } catch (e) {
+  //     print('SocketService: Error sending test notification: $e');
+  //   }
+  // }
 
   // Add method to test background notification
   // void testBackgroundNotification() {
