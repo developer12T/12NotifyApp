@@ -198,19 +198,18 @@ class _ChatPageState extends State<ChatPage> {
     if (_replyingToMessage == null) return const SizedBox.shrink();
 
     final sender = _replyingToMessage!['sender'];
-    final senderName =
-        sender is Map
-            ? (sender['fullName'] ?? '...')
-            : (sender?.toString() ?? '...');
-
+    final senderName = sender is Map
+        ? (sender['fullName'] ?? '...')
+        : (sender?.toString() ?? '...');
     final messageText = _replyingToMessage!['message'] ?? '';
     final isImage = _replyingToMessage!['isImage'] == true;
+    final imageUrl = _replyingToMessage!['imageUrl'];
 
     return Container(
       margin: const EdgeInsets.fromLTRB(8, 0, 8, 0),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: Colors.grey[200],
         borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(color: Theme.of(context).primaryColor, width: 3),
@@ -218,32 +217,40 @@ class _ChatPageState extends State<ChatPage> {
       ),
       child: Row(
         children: [
+          if (isImage && imageUrl != null)
+            Container(
+              width: 36,
+              height: 36,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                color: Colors.grey[300],
+                image: DecorationImage(
+                  image: NetworkImage(
+                    imageUrl.startsWith('http')
+                        ? imageUrl
+                        : '${ApiService.baseUrl}$imageUrl',
+                  ),
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.reply,
-                      size: 14,
-                      color: Theme.of(context).primaryColor,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      senderName,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).primaryColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                Text(
+                  senderName,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).primaryColor,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   isImage
-                      ? '📷 รูปภาพ${messageText.isNotEmpty ? ': $messageText' : ''}'
+                      ? 'รูปภาพ${messageText.isNotEmpty ? ': $messageText' : ''}'
                       : messageText,
                   style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                   maxLines: 2,
@@ -272,6 +279,11 @@ class _ChatPageState extends State<ChatPage> {
 
     final messageText = replyData['message'] ?? '';
     final isImage = replyData['isImage'] == true;
+    final isFile = replyData['isFile'] == true;
+    final fileName = replyData['fileName'];
+    final fileType = replyData['fileType'];
+    final fileUrl = replyData['fileUrl'];
+    final imageUrl = replyData['imageUrl'];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -281,25 +293,85 @@ class _ChatPageState extends State<ChatPage> {
         borderRadius: BorderRadius.circular(6),
         border: Border(left: BorderSide(color: Colors.grey[500]!, width: 2)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            senderName,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
+          if (isImage && imageUrl != null && imageUrl.isNotEmpty)
+            Container(
+              width: 36,
+              height: 36,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                color: Colors.grey[300],
+                image: DecorationImage(
+                  image: NetworkImage(
+                    imageUrl.startsWith('http')
+                        ? imageUrl
+                        : '${ApiService.baseUrl}$imageUrl',
+                  ),
+                  fit: BoxFit.cover,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            isImage
-                ? '📷 รูปภาพ${messageText.isNotEmpty ? ': $messageText' : ''}'
-                : messageText,
-            style: TextStyle(fontSize: 11, color: Colors.grey[700]),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          if (isFile && fileName != null)
+            Container(
+              width: 36,
+              height: 36,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                color: Colors.grey[200],
+              ),
+              child: Center(
+                child: Icon(
+                  _getFileIcon(fileType),
+                  color: _getFileColor(fileType),
+                  size: 24,
+                ),
+              ),
+            ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  senderName,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                if (isImage)
+                  Text(
+                    '📷 รูปภาพ${messageText.isNotEmpty ? ': $messageText' : ''}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                else if (isFile && fileName != null)
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          fileName,
+                          style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Text(
+                    messageText,
+                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -771,8 +843,10 @@ class _ChatPageState extends State<ChatPage> {
   String formatDate(String dateString) {
     try {
       final date = DateTime.parse(dateString);
+      // Use toLocal() to convert to local timezone
+      final localDate = date.toLocal();
       final formatter = DateFormat('dd/MM/yyyy HH:mm');
-      return formatter.format(date);
+      return formatter.format(localDate);
     } catch (e) {
       print('Error formatting date: $e');
       return dateString;
@@ -782,8 +856,10 @@ class _ChatPageState extends State<ChatPage> {
   String formatTime(String dateString) {
     try {
       final date = DateTime.parse(dateString);
+      // Use toLocal() to convert to local timezone
+      final localDate = date.toLocal();
       final formatter = DateFormat('HH:mm');
-      return formatter.format(date);
+      return formatter.format(localDate);
     } catch (e) {
       print('Error formatting time: $e');
       return dateString;
@@ -793,8 +869,10 @@ class _ChatPageState extends State<ChatPage> {
   String formatDateOnly(String dateString) {
     try {
       final date = DateTime.parse(dateString);
+      // Use toLocal() to convert to local timezone
+      final localDate = date.toLocal();
       final formatter = DateFormat('dd/MM/yyyy');
-      return formatter.format(date);
+      return formatter.format(localDate);
     } catch (e) {
       print('Error formatting date only: $e');
       return dateString;
@@ -803,7 +881,9 @@ class _ChatPageState extends State<ChatPage> {
 
   bool isSameDay(String date1, String date2) {
     try {
-      return formatDateOnly(date1) == formatDateOnly(date2);
+      final d1 = DateTime.parse(date1).toLocal();
+      final d2 = DateTime.parse(date2).toLocal();
+      return d1.year == d2.year && d1.month == d2.month && d1.day == d2.day;
     } catch (e) {
       print('Error comparing dates: $e');
       return false;
@@ -1706,10 +1786,7 @@ class _ChatPageState extends State<ChatPage> {
                               Widget? dateSeparator;
                               if (index == messages.length - 1 ||
                                   (index < messages.length - 1 &&
-                                      !isSameDay(
-                                        message['timestamp'],
-                                        messages[index + 1]['timestamp'],
-                                      ))) {
+                                   !isSameDay(message['timestamp'], messages[index + 1]['timestamp']))) {
                                 dateSeparator = Container(
                                   margin: const EdgeInsets.symmetric(
                                     vertical: 16,
@@ -1725,7 +1802,7 @@ class _ChatPageState extends State<ChatPage> {
                                         borderRadius: BorderRadius.circular(20),
                                       ),
                                       child: Text(
-                                        formatDateOnly(message['timestamp']),
+                                        formatDateOnly(message['timestamp'] ?? ''),
                                         style: TextStyle(
                                           color: Colors.grey[700],
                                           fontSize: 12,
@@ -1964,9 +2041,7 @@ class _ChatPageState extends State<ChatPage> {
                                                                     .spaceBetween,
                                                             children: [
                                                               Text(
-                                                                formatTime(
-                                                                  message['timestamp'],
-                                                                ),
+                                                                formatTime(message['timestamp'] ?? ''),
                                                                 style: TextStyle(
                                                                   fontSize: 12,
                                                                   color:
@@ -2613,18 +2688,23 @@ class _ChatPageState extends State<ChatPage> {
 
   // Add timestamp formatting method
   String _formatTimestamp(String timestamp) {
-    final date = DateTime.parse(timestamp);
-    final now = DateTime.now();
-    final difference = now.difference(date);
+    try {
+      final date = DateTime.parse(timestamp).toLocal();
+      final now = DateTime.now();
+      final difference = now.difference(date);
 
-    if (difference.inDays > 0) {
-      return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes}m ago';
-    } else {
-      return 'Just now';
+      if (difference.inDays > 0) {
+        return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+      } else if (difference.inHours > 0) {
+        return '${difference.inHours}h ago';
+      } else if (difference.inMinutes > 0) {
+        return '${difference.inMinutes}m ago';
+      } else {
+        return 'Just now';
+      }
+    } catch (e) {
+      print('Error formatting timestamp: $e');
+      return timestamp;
     }
   }
 

@@ -485,6 +485,10 @@ class ApiService {
           'isRead': messageData['isRead'] ?? false,
           'isImage': messageData['isImage'] ?? false,
           'imageUrl': messageData['imageUrl'],
+          'isFile': messageData['isFile'] ?? false,
+          'fileUrl': messageData['fileUrl'],
+          'fileName': messageData['fileName'],
+          'fileType': messageData['fileType'],
           'isReply': messageData['isReply'] ?? false,
           'replyTo': messageData['replyTo'],
           'replyToMessage':
@@ -1154,6 +1158,74 @@ class ApiService {
     } catch (e) {
       print('Error uploading image: $e');
       throw Exception('Failed to upload image: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadDirectMessageFile(
+    PlatformFile file,
+    String recipientId,
+    String employeeId, {
+    String? message,
+    String? replyToId,
+    Map<String, dynamic>? replyToMessage,
+  }) async {
+    try {
+      print('\n=== Starting Direct Message File Upload ===');
+      print('- Endpoint: $baseUrl/api/direct-messages/upload-file');
+      print('- Recipient ID: $recipientId');
+      print('- Employee ID: $employeeId');
+      print('- File: ${file.name}');
+      print('- Message: $message');
+      print('- Reply To ID: $replyToId');
+
+      final fileObj = File(file.path!);
+      if (!await fileObj.exists()) {
+        throw Exception('File does not exist at path: ${file.path}');
+      }
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/direct-messages/upload-file'),
+      );
+
+      final multipartFile = await http.MultipartFile.fromPath(
+        'file',
+        file.path!,
+        filename: file.name,
+        contentType: MediaType.parse('application/${file.extension ?? 'octet-stream'}'),
+      );
+
+      request.files.add(multipartFile);
+
+      request.fields.addAll({
+        'recipientId': recipientId,
+        'employeeId': employeeId,
+        if (message != null && message.isNotEmpty) 'message': message,
+        if (replyToId != null) 'replyToId': replyToId,
+        if (replyToMessage != null) 'replyToMessage': jsonEncode(replyToMessage),
+      });
+
+      print('Sending request...');
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['data'] != null) {
+          return data['data'];
+        } else {
+          throw Exception(data['error'] ?? 'ไม่สามารถส่งไฟล์ได้');
+        }
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['error'] ?? 'ไม่สามารถส่งไฟล์ได้');
+      }
+    } catch (e) {
+      print('❌ Error in uploadDirectMessageFile: $e');
+      rethrow;
     }
   }
 }

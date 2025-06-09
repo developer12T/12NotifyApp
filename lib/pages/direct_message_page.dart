@@ -803,7 +803,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       _scrollToBottom();
 
       // อัพโหลดไฟล์
-      final response = await widget.apiService.uploadFile(
+      final response = await widget.apiService.uploadDirectMessageFile(
         _selectedFile!,
         widget.recipientId,
         currentUserId!,
@@ -1356,12 +1356,17 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                   color: _getFileColor(fileType),
                 ),
                 const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    fileName ?? 'ไฟล์',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fileName ?? 'ไฟล์',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1687,27 +1692,31 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                       size: 32,
                     ),
                     const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          message['fileName'],
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            Text(
-                              'คลิกเพื่อเปิดไฟล์',
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            message['fileName'],
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
                             ),
-                            const SizedBox(width: 4),
-                            Icon(Icons.open_in_new, size: 12, color: Colors.grey[600]),
-                          ],
-                        ),
-                      ],
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          Row(
+                            children: [
+                              Text(
+                                'คลิกเพื่อเปิดไฟล์',
+                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.open_in_new, size: 12, color: Colors.grey[600]),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
