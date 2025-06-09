@@ -79,8 +79,8 @@ class _ProfilePageState extends State<ProfilePage> {
                               shape: BoxShape.circle,
                               gradient: RadialGradient(
                                 colors: [
-                                  // Color(0x40FFFFFF),
-                                  // Color(0x00FFFFFF),
+                                  Color(0x40FFFFFF),
+                                  Color(0x00FFFFFF),
                                 ],
                               ),
                             ),

@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io';
+import 'dart:io' show File, Platform;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -509,16 +509,27 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
       if (hasReplyContent) {
         isReply = true;
+        final replyImageUrl = replyData['imageUrl'];
+        final replyFileUrl = replyData['fileUrl'];
+        
         replyToMessage = {
           '_id': replyData['messageId'] ?? replyData['_id'],
           'message': replyData['message'] ?? '',
           'timestamp': replyData['createdAt'] ?? timestamp,
           'isImage': replyData['isImage'] ?? false,
-          'imageUrl': replyData['imageUrl'],
+          'imageUrl': replyImageUrl != null 
+              ? (replyImageUrl.toString().startsWith('http') 
+                  ? replyImageUrl 
+                  : '${ApiService.baseUrl}/${replyImageUrl.toString().startsWith('/') ? replyImageUrl.toString().substring(1) : replyImageUrl}')
+              : null,
           'isFile': replyData['isFile'] ?? false,
           'fileName': replyData['fileName'],
           'fileType': replyData['fileType'],
-          'fileUrl': replyData['fileUrl'],
+          'fileUrl': replyFileUrl != null
+              ? (replyFileUrl.toString().startsWith('http')
+                  ? replyFileUrl
+                  : '${ApiService.baseUrl}/${replyFileUrl.toString().startsWith('/') ? replyFileUrl.toString().substring(1) : replyFileUrl}')
+              : null,
           'sender': replySender != null
               ? {
                   'employeeID': replySender['employeeID']?.toString() ?? 'unknown',
@@ -536,6 +547,10 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       }
     }
 
+    // Handle file and image URLs
+    final imageUrl = messageData['imageUrl'];
+    final fileUrl = messageData['fileUrl'];
+
     return {
       '_id': messageData['_id']?.toString() ?? 'msg_${DateTime.now().millisecondsSinceEpoch}',
       'message': messageData['message'] ?? '',
@@ -544,11 +559,19 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       'isRead': messageData['isRead'] ?? false,
       'isSending': false,
       'isImage': messageData['isImage'] ?? false,
-      'imageUrl': messageData['imageUrl'],
+      'imageUrl': imageUrl != null 
+          ? (imageUrl.toString().startsWith('http') 
+              ? imageUrl 
+              : '${ApiService.baseUrl}/${imageUrl.toString().startsWith('/') ? imageUrl.toString().substring(1) : imageUrl}')
+          : null,
       'isFile': messageData['isFile'] ?? false,
       'fileName': messageData['fileName'],
       'fileType': messageData['fileType'],
-      'fileUrl': messageData['fileUrl'],
+      'fileUrl': fileUrl != null
+          ? (fileUrl.toString().startsWith('http')
+              ? fileUrl
+              : '${ApiService.baseUrl}/${fileUrl.toString().startsWith('/') ? fileUrl.toString().substring(1) : fileUrl}')
+          : null,
       'isReply': isReply,
       'replyToId': isReply ? (messageData['replyTo'] ?? messageData['replyToMessage']?['messageId']) : null,
       'replyToMessage': isReply ? replyToMessage : null,
@@ -575,6 +598,12 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     if (currentUserId == null) return;
 
     try {
+      print('\n=== 📥 DEBUG: Loading Messages ===');
+      print('📍 Called from: ${StackTrace.current.toString().split('\n')[1]}');
+      print('⏰ Timestamp: ${DateTime.now().toIso8601String()}');
+      print('👤 Current User ID: $currentUserId');
+      print('📱 Recipient ID: ${widget.recipientId}');
+
       final url = Uri.parse('${ApiService.baseUrl}/api/direct-messages/conversation/${widget.recipientId}')
           .replace(queryParameters: {
         'employeeId': currentUserId,
@@ -582,13 +611,16 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         'limit': '50',
       });
 
+      print('🌐 API URL: $url');
       final response = await http.get(url);
+      print('📡 Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
         if (data['success'] && mounted) {
           final List<dynamic> messagesData = data['data'] ?? [];
+          print('📊 Received ${messagesData.length} messages from API');
 
           setState(() {
             messages = messagesData.map((msg) {
@@ -599,10 +631,19 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
             isLoading = false;
           });
 
+          print('✅ Messages loaded and sorted successfully');
+          print('📊 Total messages in state: ${messages.length}');
+
+          // Mark messages as read after loading
+          print('🔍 About to call _markMessagesAsRead()...');
+          await _markMessagesAsRead();
+          print('✅ _markMessagesAsRead() completed');
+
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _scrollToBottom();
           });
         } else {
+          print('❌ API returned success: false');
           if (mounted) {
             setState(() {
               messages = [];
@@ -611,6 +652,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           }
         }
       } else {
+        print('❌ API returned status code: ${response.statusCode}');
         if (mounted) {
           setState(() {
             messages = [];
@@ -626,6 +668,99 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           isLoading = false;
         });
       }
+    }
+  }
+
+  /// Mark messages as read
+  Future<void> _markMessagesAsRead() async {
+    if (currentUserId == null || widget.recipientId.isEmpty) return;
+
+    try {
+      print('\n=== 🔍 DEBUG: Marking Messages as Read ===');
+      print('📍 Called from: ${StackTrace.current.toString().split('\n')[1]}');
+      print('⏰ Timestamp: ${DateTime.now().toIso8601String()}');
+      print('👤 Current User ID: $currentUserId');
+      print('📱 Recipient ID: ${widget.recipientId}');
+      print('📊 Total messages: ${messages.length}');
+
+      // Get unread message IDs
+      final unreadMessageIds = messages
+          .where((msg) => 
+              msg['isRead'] == false && 
+              msg['sender']?['employeeID']?.toString() != currentUserId)
+          .map((msg) => msg['_id'].toString())
+          .toList();
+
+      if (unreadMessageIds.isEmpty) {
+        print('✅ No unread messages to mark');
+        return;
+      }
+
+      print('📝 Unread message IDs: $unreadMessageIds');
+      print('📝 Unread count: ${unreadMessageIds.length}');
+
+      // Send mark as read request via socket
+      final conversationId = '${currentUserId}_${widget.recipientId}';
+      
+      if (widget.apiService.socket?.connected == true) {
+        print('📡 Sending markDirectMessagesRead socket event');
+        print('📡 Conversation ID: $conversationId');
+        print('📡 Message IDs: $unreadMessageIds');
+        
+        widget.apiService.socket?.emit('markDirectMessagesRead', {
+          'messageIds': unreadMessageIds,
+          'readerId': currentUserId,
+          'conversationId': conversationId,
+        });
+        print('✅ Mark as read socket request sent');
+        
+        // Also emit to broadcast the read status to other clients (including list page)
+        widget.apiService.socket?.emit('directMessagesRead', {
+          'messageIds': unreadMessageIds,
+          'readerId': currentUserId,
+          'conversationId': conversationId,
+        });
+        print('📡 Broadcasted directMessagesRead event to other clients');
+      } else {
+        print('❌ Socket not connected, cannot send mark as read request');
+      }
+
+      // Also send HTTP request to mark as read for persistence
+      try {
+        print('🌐 Sending HTTP mark-read request');
+        final url = Uri.parse('${ApiService.baseUrl}/api/direct-messages/mark-read');
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'messageIds': unreadMessageIds,
+            'employeeId': currentUserId,
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          print('✅ Mark as read HTTP request successful');
+          
+          // Update local message states
+          setState(() {
+            for (final message in messages) {
+              if (unreadMessageIds.contains(message['_id'])) {
+                message['isRead'] = true;
+              }
+            }
+          });
+          print('✅ Local message states updated');
+        } else {
+          print('❌ Mark as read HTTP request failed: ${response.statusCode}');
+          print('❌ Response body: ${response.body}');
+        }
+      } catch (e) {
+        print('❌ Error sending mark as read HTTP request: $e');
+      }
+
+    } catch (e) {
+      print('❌ Error marking messages as read: $e');
+      print('❌ Stack trace: ${StackTrace.current}');
     }
   }
 
@@ -1032,15 +1167,44 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
   /// เปิด URL
   Future<void> _launchUrl(String url) async {
     try {
-      final uri = Uri.parse(url);
-      if (!await launchUrl(uri)) {
+      // ตรวจสอบและปรับ URL
+      String fullUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        // ถ้าเป็น relative path ให้เพิ่ม base URL
+        if (url.startsWith('/')) {
+          fullUrl = '${ApiService.baseUrl}$url';
+        } else {
+          fullUrl = '${ApiService.baseUrl}/$url';
+        }
+      }
+
+      print('Opening URL: $fullUrl');
+
+      // ถ้าเป็น Windows ให้เปิดในเบราว์เซอร์ภายนอก
+      if (Platform.isWindows) {
+        final uri = Uri.parse(fullUrl);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+
+      // สำหรับแพลตฟอร์มอื่นๆ เปิดในเบราว์เซอร์ภายนอก
+      final uri = Uri.parse(fullUrl);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         throw Exception('Could not launch URL');
       }
     } catch (e) {
       print('❌ Error launching URL: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่สามารถเปิดไฟล์ได้')),
+          SnackBar(
+            content: Text('ไม่สามารถเปิดไฟล์ได้: $e'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'ลองใหม่',
+              textColor: Colors.white,
+              onPressed: () => _launchUrl(url),
+            ),
+          ),
         );
       }
     }

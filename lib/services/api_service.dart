@@ -764,21 +764,30 @@ class ApiService {
       print('- File readable: true');
       print('- Bytes read: ${fileBytes.length}');
 
+      // Encode filename for proper Thai character handling
+      final encodedFilename = Uri.encodeComponent(file.name);
+      print('- Encoded filename: $encodedFilename');
+
       // Create multipart file with explicit content type and charset
       final multipartFile = await http.MultipartFile.fromPath(
         'file',
         file.path!,
-        filename: file.name,
+        filename: file.name, // Use original filename, not encoded
         contentType: MediaType.parse('application/${file.extension ?? 'octet-stream'}'),
       );
 
       // Add file to request
       request.files.add(multipartFile);
 
+      // Set proper headers for Thai character support
+      request.headers['Content-Type'] = 'multipart/form-data; charset=utf-8';
+      request.headers['Accept-Charset'] = 'utf-8';
+
       // Add other fields
       request.fields.addAll({
         'roomId': roomId,
         'employeeId': employeeId,
+        'fileName': file.name, // Send original filename separately
         if (message != null && message.isNotEmpty) 'message': message,
         if (replyToId != null) 'replyToId': replyToId,
         if (replyToMessage != null) 'replyToMessage': jsonEncode(replyToMessage),
@@ -1171,60 +1180,122 @@ class ApiService {
   }) async {
     try {
       print('\n=== Starting Direct Message File Upload ===');
+      print('Request Details:');
       print('- Endpoint: $baseUrl/api/direct-messages/upload-file');
+      print('- Method: POST');
+      print('- Content-Type: multipart/form-data');
+      print('\nFile Details:');
+      print('- Original Name: ${file.name}');
+      print('- Size: ${file.size} bytes');
+      print('- Extension: ${file.extension}');
+      print('- Path: ${file.path}');
+      print('\nParameters:');
       print('- Recipient ID: $recipientId');
       print('- Employee ID: $employeeId');
-      print('- File: ${file.name}');
       print('- Message: $message');
       print('- Reply To ID: $replyToId');
 
+      // Validate file exists and is readable
       final fileObj = File(file.path!);
       if (!await fileObj.exists()) {
         throw Exception('File does not exist at path: ${file.path}');
       }
 
+      // Create multipart request
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('$baseUrl/api/direct-messages/upload-file'),
       );
 
+      // Read file bytes and validate
+      final fileBytes = await fileObj.readAsBytes();
+      print('\nFile Validation:');
+      print('- File exists: true');
+      print('- File readable: true');
+      print('- Bytes read: ${fileBytes.length}');
+
+      // Encode filename for proper Thai character handling
+      final encodedFilename = Uri.encodeComponent(file.name);
+      print('- Encoded filename: $encodedFilename');
+
+      // Create multipart file with explicit content type and charset
       final multipartFile = await http.MultipartFile.fromPath(
         'file',
         file.path!,
-        filename: file.name,
+        filename: file.name, // Use original filename, not encoded
         contentType: MediaType.parse('application/${file.extension ?? 'octet-stream'}'),
       );
 
+      // Add file to request
       request.files.add(multipartFile);
 
+      // Set proper headers for Thai character support
+      request.headers['Content-Type'] = 'multipart/form-data; charset=utf-8';
+      request.headers['Accept-Charset'] = 'utf-8';
+
+      // Add other fields
       request.fields.addAll({
         'recipientId': recipientId,
         'employeeId': employeeId,
+        'fileName': file.name, // Send original filename separately
         if (message != null && message.isNotEmpty) 'message': message,
         if (replyToId != null) 'replyToId': replyToId,
         if (replyToMessage != null) 'replyToMessage': jsonEncode(replyToMessage),
       });
 
-      print('Sending request...');
+      // Log complete request details
+      print('\nRequest Details:');
+      print('Headers:');
+      request.headers.forEach((key, value) {
+        print('- $key: $value');
+      });
+      print('\nFields:');
+      request.fields.forEach((key, value) {
+        print('- $key: $value');
+      });
+      print('\nFiles:');
+      request.files.forEach((file) {
+        print('- Field: ${file.field}');
+        print('  Original Filename: ${file.filename}');
+        print('  Content-Type: ${file.contentType}');
+        print('  Length: ${file.length} bytes');
+      });
+
+      // Send request
+      print('\nSending request...');
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      print('\nResponse Details:');
+      print('- Status Code: ${response.statusCode}');
+      print('- Headers:');
+      response.headers.forEach((key, value) {
+        print('  $key: $value');
+      });
+      print('- Body: ${response.body}');
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['data'] != null) {
+          print('\nUpload successful:');
+          print('- Response data: ${data['data']}');
           return data['data'];
         } else {
+          print('\nUpload failed:');
+          print('- Error: ${data['error'] ?? 'ไม่สามารถส่งไฟล์ได้'}');
           throw Exception(data['error'] ?? 'ไม่สามารถส่งไฟล์ได้');
         }
       } else {
         final error = jsonDecode(response.body);
+        print('\nUpload failed:');
+        print('- Error: ${error['error'] ?? 'ไม่สามารถส่งไฟล์ได้'}');
         throw Exception(error['error'] ?? 'ไม่สามารถส่งไฟล์ได้');
       }
     } catch (e) {
-      print('❌ Error in uploadDirectMessageFile: $e');
+      print('\n❌ Error in uploadDirectMessageFile:');
+      print('- Type: ${e.runtimeType}');
+      print('- Message: $e');
+      print('- Stack trace: ${StackTrace.current}');
       rethrow;
     }
   }

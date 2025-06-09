@@ -10,7 +10,7 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  Future<void> init() async {
+  Future<void> init({Function(Map<String, dynamic>)? onNotificationTap}) async {
     // ตั้งค่าการแจ้งเตือนสำหรับ Android
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -35,6 +35,15 @@ class NotificationService {
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         // จัดการเมื่อผู้ใช้แตะที่การแจ้งเตือน
         debugPrint('ผู้ใช้แตะที่การแจ้งเตือน: ${response.payload}');
+        
+        if (response.payload != null && onNotificationTap != null) {
+          try {
+            final payload = jsonDecode(response.payload!);
+            onNotificationTap(payload);
+          } catch (e) {
+            debugPrint('Error parsing notification payload: $e');
+          }
+        }
       },
     );
   }

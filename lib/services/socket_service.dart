@@ -14,19 +14,19 @@ class SocketService {
   }
 
   SocketService._internal() {
-    print('SocketService: Initializing socket with URL: ${dotenv.env['API_BASE_URL']}');
-    socket = IO.io('http://127.0.0.1', <String, dynamic>{
+    print('SocketService: Initializing socket with URL: ${ApiService.baseUrl}');
+    socket = IO.io(ApiService.baseUrl, <String, dynamic>{
       'transports': ['websocket'],
-      'path': '/socket.io/',  // ต้องเปิด comment นี้
-      'reconnection': false,
+      'path': '/socket.io/',
+      'reconnection': true,
       'forceNew': true
     });
 
     print('SocketService: Socket instance created with options:');
-    print('- URL: http://192.168.2.81:80');
+    print('- URL: ${ApiService.baseUrl}');
     print('- Path: /socket.io');
     print('- Transport: websocket');
-    print('- Reconnection: false');
+    print('- Reconnection: true');
 
     // Add explicit connect call
     print('SocketService: Attempting to connect socket...');
@@ -51,7 +51,7 @@ class SocketService {
       print('Socket nsp: ${socket?.nsp}');
       print('Socket connected: ${socket?.connected}');
       print('Socket ID: ${socket?.id}');
-      print('Base URL: http://192.168.2.81:80');
+      print('Base URL: ${ApiService.baseUrl}');
     });
 
     socket?.onDisconnect((_) {
@@ -155,6 +155,15 @@ class SocketService {
       print('Data: $data');
     });
 
+    // Listen for announcements events
+    socket?.on('newAnnouncement', (data) {
+      print('=== SocketService: New Announcement Received ===');
+      print('Data: $data');
+    });
+
+    // Subscribe to announcements when connected
+    socket?.emit('subscribeAnnouncements', {});
+
     print('=== SocketService: Message Listeners Setup Complete ===');
   }
 
@@ -186,7 +195,7 @@ class SocketService {
 
   Future<void> connect() async {
     print('SocketService: Attempting to connect socket...');
-    print('SocketService: API_BASE_URL: ${dotenv.env['API_BASE_URL']}');
+    print('SocketService: API_BASE_URL: ${ApiService.baseUrl}');
     try {
       socket.connect();
       print('SocketService: Socket connect() called successfully');
@@ -200,29 +209,69 @@ class SocketService {
     socket.disconnect();
   }
 
-  void onNewAnnouncement(Function(dynamic) callback) {
+  void onNewAnnouncement(Function(dynamic) callback, {bool Function()? isInAnnouncementsPage, bool Function()? isAppInForeground}) {
     print('Setting up newAnnouncement listener');
+    
+    // Subscribe to announcements if socket is connected
+    if (socket.connected) {
+      socket.emit('subscribeAnnouncements', {});
+      print('Subscribed to announcements');
+    }
+    
     socket.on('newAnnouncement', (data) {
       print('Received new announcement: $data');
+      
       // Extract the announcement data from the response
-      final rawData = data is List ? data[0] : data;
-      final announcementData = rawData['data'];
+      dynamic announcementData;
+      if (data is List && data.isNotEmpty) {
+        announcementData = data[0];
+      } else if (data is Map) {
+        announcementData = data;
+      } else {
+        print('Invalid announcement data format: ${data.runtimeType}');
+        return;
+      }
       
-      // Ensure the data structure matches the API response
-      final formattedData = {
-        ...announcementData,
-        'createdBy': {
-          'fullNameThai': announcementData['createdBy']?.toString() ?? 'Unknown',
-          'department': announcementData['department']?.toString(),
-        }
-      };
+      // Handle different data structures
+      Map<String, dynamic> formattedData;
+      if (announcementData['data'] != null) {
+        // If data is nested under 'data' key
+        formattedData = {
+          ...announcementData['data'],
+          'createdBy': {
+            'fullNameThai': announcementData['data']['createdBy']?.toString() ?? 'Unknown',
+            'department': announcementData['data']['department']?.toString(),
+          }
+        };
+      } else {
+        // If data is directly available
+        formattedData = {
+          ...announcementData,
+          'createdBy': {
+            'fullNameThai': announcementData['createdBy']?.toString() ?? 'Unknown',
+            'department': announcementData['department']?.toString(),
+          }
+        };
+      }
       
-      // Show notification for new announcement
-      _notiService.showNotification(
-        title: 'ประกาศใหม่: ${formattedData['title']}',
-        body: formattedData['content'],
-        payload: json.encode(formattedData),
-      );
+      // Show notification for new announcement if:
+      // 1. User is not in announcements page, OR
+      // 2. App is not in foreground
+      final isInAnnouncements = isInAnnouncementsPage?.call() ?? false;
+      final isInForeground = isAppInForeground?.call() ?? true;
+      print('SocketService: isInAnnouncementsPage check: $isInAnnouncements');
+      print('SocketService: isAppInForeground check: $isInForeground');
+      
+      if (!isInAnnouncements || !isInForeground) {
+        print('SocketService: Showing notification for new announcement');
+        _notiService.showNotification(
+          title: 'ประกาศใหม่: ${formattedData['title']}',
+          body: formattedData['content'],
+          payload: json.encode(formattedData),
+        );
+      } else {
+        print('User is in announcements page and app is in foreground, skipping notification');
+      }
       
       // Call the callback with the formatted announcement data
       callback(formattedData);
@@ -263,4 +312,72 @@ class SocketService {
       print('Cannot unsubscribe: Socket not connected');
     }
   }
+
+  // Add method to test announcements subscription
+  void testAnnouncementsSubscription() {
+    print('=== SocketService: Testing Announcements Subscription ===');
+    print('Socket connected: ${socket.connected}');
+    print('Socket ID: ${socket.id}');
+    
+    if (socket.connected) {
+      socket.emit('subscribeAnnouncements', {});
+      print('Test subscription request sent for announcements');
+    } else {
+      print('Cannot test subscription: Socket not connected');
+    }
+  }
+
+  // Add method to emit test announcement
+  void sendTestAnnouncement(String title, String content) {
+    print('=== SocketService: Sending Test Announcement ===');
+    print('Title: $title');
+    print('Content: $content');
+    print('Socket ID: ${socket.id}');
+    print('Socket connected: ${socket.connected}');
+
+    if (socket.connected) {
+      socket.emit('testAnnouncement', {
+        'title': title,
+        'content': content,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      print('Test announcement sent');
+    } else {
+      print('Cannot send test announcement: Socket not connected');
+    }
+  }
+
+  // Add method to test notification service
+  void testNotificationService() {
+    print('=== SocketService: Testing Notification Service ===');
+    try {
+      _notiService.showNotification(
+        title: 'ทดสอบการแจ้งเตือน',
+        body: 'นี่คือการทดสอบการแจ้งเตือนจาก SocketService',
+        payload: json.encode({'type': 'test', 'message': 'test notification'}),
+      );
+      print('SocketService: Test notification sent successfully');
+    } catch (e) {
+      print('SocketService: Error sending test notification: $e');
+    }
+  }
+
+  // Add method to test background notification
+  // void testBackgroundNotification() {
+  //   print('=== SocketService: Testing Background Notification ===');
+  //   try {
+  //     _notiService.showNotification(
+  //       title: 'ประกาศใหม่ (ทดสอบ Background)',
+  //       body: 'นี่คือการทดสอบการแจ้งเตือนเมื่อแอปอยู่ใน background',
+  //       payload: json.encode({
+  //         'type': 'announcement',
+  //         'title': 'ประกาศใหม่ (ทดสอบ Background)',
+  //         'content': 'นี่คือการทดสอบการแจ้งเตือนเมื่อแอปอยู่ใน background'
+  //       }),
+  //     );
+  //     print('SocketService: Background test notification sent successfully');
+  //   } catch (e) {
+  //     print('SocketService: Error sending background test notification: $e');
+  //   }
+  // }
 } 

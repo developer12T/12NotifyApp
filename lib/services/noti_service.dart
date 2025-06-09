@@ -93,6 +93,7 @@ class NotiService {
         initSetting,
         onDidReceiveNotificationResponse: (NotificationResponse response) {
           print('NotiService: Notification tapped: ${response.payload}');
+          // Handle notification tap - you can add navigation logic here
         },
         onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
       );
@@ -112,6 +113,10 @@ class NotiService {
     String? payload,
   }) async {
     print('NotiService: Attempting to show notification: $title');
+    print('NotiService: Body: $body');
+    print('NotiService: Payload: $payload');
+    print('NotiService: Is initialized: $_isInitialized');
+    
     try {
       if (!_isInitialized) {
         print('NotiService: Not initialized, initializing now...');
@@ -137,6 +142,8 @@ class NotiService {
       );
 
       final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      print('NotiService: Showing notification with ID: $id');
+      
       await notificationsPlugin.show(
         id,
         title,
@@ -147,6 +154,7 @@ class NotiService {
       print('NotiService: Notification shown successfully with ID: $id');
     } catch (e) {
       print('NotiService: Error showing notification: $e');
+      print('NotiService: Stack trace: ${StackTrace.current}');
       rethrow;
     }
   }

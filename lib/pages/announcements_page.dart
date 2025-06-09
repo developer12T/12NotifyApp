@@ -8,7 +8,16 @@ import '../services/noti_service.dart';
 import 'announcement_detail_page.dart';
 
 class AnnouncementsPage extends StatefulWidget {
-  const AnnouncementsPage({Key? key}) : super(key: key);
+  final Function(bool)? onPageVisibilityChanged;
+  final bool Function()? isInAnnouncementsPage;
+  final bool Function()? isAppInForeground;
+
+  const AnnouncementsPage({
+    Key? key,
+    this.onPageVisibilityChanged,
+    this.isInAnnouncementsPage,
+    this.isAppInForeground,
+  }) : super(key: key);
 
   @override
   State<AnnouncementsPage> createState() => _AnnouncementsPageState();
@@ -23,14 +32,19 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
   final ScrollController _scrollController = ScrollController();
   final SocketService _socketService = SocketService();
   final NotiService _notiService = NotiService();
+  bool _isPageVisible = false; // Track page visibility
 
   @override
   void initState() {
     super.initState();
     print('AnnouncementsPage: initState called');
+    _isPageVisible = true; // Set page as visible
     _initializeServices();
     fetchAnnouncements();
     _setupScrollListener();
+    
+    // Notify that announcements page is visible
+    widget.onPageVisibilityChanged?.call(true);
   }
 
   Future<void> _initializeServices() async {
@@ -38,26 +52,52 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
     try {
       await _notiService.initNotification();
       print('AnnouncementsPage: NotiService initialized');
-      await _socketService.connect();
-      print('AnnouncementsPage: SocketService connected');
+      
+      // Check if socket is already connected
+      if (!_socketService.socket.connected) {
+        await _socketService.connect();
+        print('AnnouncementsPage: SocketService connected');
+      } else {
+        print('AnnouncementsPage: SocketService already connected');
+      }
+      
       _setupSocketConnection();
       print('AnnouncementsPage: Socket connection setup completed');
     } catch (e) {
       print('AnnouncementsPage: Error in _initializeServices: $e');
+      print('AnnouncementsPage: Stack trace: ${StackTrace.current}');
     }
   }
 
   void _setupSocketConnection() {
     print('AnnouncementsPage: Setting up socket connection');
-    _socketService.onNewAnnouncement((data) {
-      // ตรวจสอบและปรับโครงสร้างข้อมูล
-      if (data['createdByUser'] != null) {
-        data['createdBy'] = data['createdByUser'];
-      }
-      setState(() {
-        announcements.insert(0, data);
-      });
-    });
+    print('AnnouncementsPage: Socket connected: ${_socketService.socket.connected}');
+    print('AnnouncementsPage: Socket ID: ${_socketService.socket.id}');
+    
+    // Test the subscription
+    _socketService.testAnnouncementsSubscription();
+    
+    // Test notification service
+    _socketService.testNotificationService();
+    
+    // Test background notification
+    // _socketService.testBackgroundNotification();
+    
+    _socketService.onNewAnnouncement(
+      (data) {
+        print('AnnouncementsPage: Received new announcement data: $data');
+        // ตรวจสอบและปรับโครงสร้างข้อมูล
+        if (data['createdByUser'] != null) {
+          data['createdBy'] = data['createdByUser'];
+        }
+        setState(() {
+          announcements.insert(0, data);
+          print('AnnouncementsPage: Added new announcement to list. Total: ${announcements.length}');
+        });
+      },
+      isInAnnouncementsPage: widget.isInAnnouncementsPage ?? (() => _isPageVisible), // Use callback from MainNavigation
+      isAppInForeground: widget.isAppInForeground ?? (() => true), // Use callback from MainNavigation
+    );
   }
 
   void _setupScrollListener() {
@@ -192,6 +232,11 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
     _scrollController.dispose();
     _socketService.offNewAnnouncement();
     _socketService.disconnect();
+    
+    _isPageVisible = false; // Set page as not visible
+    // Notify that announcements page is hidden
+    widget.onPageVisibilityChanged?.call(false);
+    
     super.dispose();
   }
 

@@ -8,6 +8,7 @@ import 'direct_message_list_page.dart';
 import 'profile_page.dart';
 import '../services/api_service.dart';
 import '../components/side_navigation.dart';
+import '../services/notification_service.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({Key? key}) : super(key: key);
@@ -16,11 +17,17 @@ class MainNavigation extends StatefulWidget {
   State<MainNavigation> createState() => _MainNavigationState();
 }
 
-class _MainNavigationState extends State<MainNavigation> {
+class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   String _userName = '';
   String _version = 'alpha-test 1.0.0';  // Hardcoded version
   final ApiService _apiService = ApiService();
+  int _totalUnreadCount = 0; // Add total unread count
+  int _directMessagesUnreadCount = 0; // Track direct messages unread count
+  int _roomsUnreadCount = 0; // Track rooms unread count
+  DateTime? _lastNotificationTime; // Track last notification time
+  String? _lastNotificationType; // Track last notification type
+  bool _isAppInForeground = true; // Track app foreground state
   // Add keys for each page
   final List<GlobalKey<State<StatefulWidget>>> _pageKeys = [
     GlobalKey<State<StatefulWidget>>(),
@@ -32,8 +39,26 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadUserData();
     // _loadVersion();  // Commented out as we use hardcoded version
+    
+    // Initialize notification service
+    NotificationService().init(
+      onNotificationTap: (payload) {
+        // Navigate to appropriate page based on notification type
+        final type = payload['type'] as String?;
+        if (type == 'room') {
+          setState(() {
+            _selectedIndex = 1; // Navigate to groups page
+          });
+        } else if (type == 'direct') {
+          setState(() {
+            _selectedIndex = 2; // Navigate to chat page
+          });
+        }
+      },
+    );
   }
 
   Future<void> _loadUserData() async {
@@ -152,11 +177,103 @@ class _MainNavigationState extends State<MainNavigation> {
     }
   }
 
+  // Method to update total unread count
+  void updateTotalUnreadCount(int count) {
+    setState(() {
+      _totalUnreadCount = count;
+    });
+  }
+
+  // Method to update direct messages unread count
+  void updateDirectMessagesUnreadCount(int count) {
+    setState(() {
+      _directMessagesUnreadCount = count;
+      _totalUnreadCount = _directMessagesUnreadCount + _roomsUnreadCount;
+    });
+  }
+
+  // Method to update rooms unread count
+  void updateRoomsUnreadCount(int count) {
+    setState(() {
+      _roomsUnreadCount = count;
+      _totalUnreadCount = _directMessagesUnreadCount + _roomsUnreadCount;
+    });
+  }
+
+  // Method to get total unread count
+  int get totalUnreadCount => _totalUnreadCount;
+
+  // Method to check if user is in chat-related pages
+  bool get isInChatPage => _selectedIndex == 1 || _selectedIndex == 2;
+
+  // Method to check if user is in announcements page
+  bool get isInAnnouncementsPage => _selectedIndex == 0;
+
+  // Method to handle new message notifications
+  void handleNewMessageNotification(String type, int unreadCount) {
+    // Show notification if user is not in chat-related pages OR if app is not in foreground
+    if ((!isInChatPage && unreadCount > 0) || !isAppInForeground) {
+      final now = DateTime.now();
+      
+      // Prevent duplicate notifications within 5 seconds
+      if (_lastNotificationTime != null && 
+          _lastNotificationType == type &&
+          now.difference(_lastNotificationTime!).inSeconds < 5) {
+        return;
+      }
+      
+      final notificationService = NotificationService();
+      final title = type == 'room' ? 'ข้อความใหม่ในกลุ่ม' : 'ข้อความใหม่';
+      final body = type == 'room' 
+          ? 'คุณมีข้อความใหม่ในกลุ่ม $unreadCount ข้อความ'
+          : 'คุณมีข้อความใหม่ $unreadCount ข้อความ';
+      
+      notificationService.showNotification(
+        title: title,
+        body: body,
+        payload: jsonEncode({
+          'type': type,
+          'unreadCount': unreadCount,
+        }),
+      );
+      
+      // Update last notification info
+      _lastNotificationTime = now;
+      _lastNotificationType = type;
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _apiService.dispose();
     super.dispose();
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    print('MainNavigation: App lifecycle state changed to: $state');
+    
+    setState(() {
+      switch (state) {
+        case AppLifecycleState.resumed:
+          _isAppInForeground = true;
+          print('MainNavigation: App resumed - in foreground');
+          break;
+        case AppLifecycleState.paused:
+        case AppLifecycleState.inactive:
+        case AppLifecycleState.detached:
+        case AppLifecycleState.hidden:
+          _isAppInForeground = false;
+          print('MainNavigation: App paused/inactive/detached/hidden - in background');
+          break;
+      }
+    });
+  }
+
+  // Method to check if app is in foreground
+  bool get isAppInForeground => _isAppInForeground;
 
   @override
   Widget build(BuildContext context) {
@@ -220,11 +337,27 @@ class _MainNavigationState extends State<MainNavigation> {
             child: IndexedStack(
               index: _selectedIndex,
               children: [
-                AnnouncementsPage(key: _pageKeys[0]),
-                RoomPage(key: _pageKeys[1], apiService: _apiService),
+                AnnouncementsPage(
+                  key: _pageKeys[0],
+                  onPageVisibilityChanged: (isVisible) {
+                    // This callback can be used to track announcements page visibility
+                    print('Announcements page visibility: $isVisible');
+                    // You can add additional logic here if needed
+                  },
+                  isInAnnouncementsPage: () => isInAnnouncementsPage,
+                  isAppInForeground: () => isAppInForeground,
+                ),
+                RoomPage(
+                  key: _pageKeys[1], 
+                  apiService: _apiService,
+                  onTotalUnreadCountChanged: updateRoomsUnreadCount,
+                  onNewMessageNotification: (count) => handleNewMessageNotification('room', count),
+                ),
                 DirectMessageListPage(
                   key: _pageKeys[2],
                   apiService: _apiService,
+                  onTotalUnreadCountChanged: updateDirectMessagesUnreadCount,
+                  onNewMessageNotification: (count) => handleNewMessageNotification('direct', count),
                 ),
                 ProfilePage(key: _pageKeys[3]),
               ],
@@ -262,7 +395,7 @@ class _MainNavigationState extends State<MainNavigation> {
             selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
             unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 10),
             showUnselectedLabels: true,
-            items: const <BottomNavigationBarItem>[
+            items: <BottomNavigationBarItem>[
               BottomNavigationBarItem(
                 icon: Padding(
                   padding: EdgeInsets.only(top: 4),
@@ -274,15 +407,74 @@ class _MainNavigationState extends State<MainNavigation> {
               BottomNavigationBarItem(
                 icon: Padding(
                   padding: EdgeInsets.only(top: 4),
-                  child: Icon(Icons.people_alt),
-                  // child: Icon(Icons.group_rounded),
+                  child: Stack(
+                    children: [
+                      Icon(Icons.people_alt),
+                      if (_roomsUnreadCount > 0)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            constraints: BoxConstraints(
+                              minWidth: _roomsUnreadCount > 99 ? 20 : 16,
+                              minHeight: 16,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade500,
+                              shape: _roomsUnreadCount > 99 ? BoxShape.rectangle : BoxShape.circle,
+                              borderRadius: _roomsUnreadCount > 99 ? BorderRadius.circular(8) : null,
+                            ),
+                            child: Text(
+                              _roomsUnreadCount > 99 ? '99+' : _roomsUnreadCount.toString(),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 label: 'กลุ่ม',
               ),
                BottomNavigationBarItem(
                 icon: Padding(
                   padding: EdgeInsets.only(top: 4),
-                  child: Icon(Icons.question_answer),
+                  child: Stack(
+                    children: [
+                      Icon(Icons.question_answer),
+                      if (_directMessagesUnreadCount > 0)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            constraints: BoxConstraints(
+                              minWidth: _directMessagesUnreadCount > 99 ? 20 : 16,
+                              minHeight: 16,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade500,
+                              shape: _directMessagesUnreadCount > 99 ? BoxShape.rectangle : BoxShape.circle,
+                              borderRadius: _directMessagesUnreadCount > 99 ? BorderRadius.circular(8) : null,
+                            ),
+                            child: Text(
+                              _directMessagesUnreadCount > 99 ? '99+' : _directMessagesUnreadCount.toString(),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 label: 'แชท',
               ),

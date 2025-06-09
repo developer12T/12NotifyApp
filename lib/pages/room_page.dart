@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../services/api_service.dart';
 import 'dart:math' as math;
 import 'chat_page.dart';
+import 'package:intl/intl.dart';
 
 class ChatRoom {
   final String id;
@@ -61,18 +62,42 @@ class ChatRoom {
     return roomName;
   }
   
-  String get lastMessageTime =>
-      lastMessage['timestamp'] != null
-          ? DateTime.parse(
-            lastMessage['timestamp'],
-          ).toString().substring(11, 16)
-          : '';
+  String get lastMessageTime {
+    // ใช้ isoString เท่านั้น เพื่อให้ได้เวลาท้องถิ่นที่ถูกต้อง
+    final timeString = lastMessage['isoString'];
+    
+    if (timeString != null) {
+      try {
+        // print('Debug - Original timeString: $timeString');
+        final messageTime = DateTime.parse(timeString).toLocal();
+        // print('Debug - Parsed messageTime (local): $messageTime');
+        // print('Debug - messageTime.hour: ${messageTime.hour}');
+        // print('Debug - messageTime.minute: ${messageTime.minute}');
+        
+        final formattedTime = DateFormat('HH:mm').format(messageTime);
+        // print('Debug - Formatted time: $formattedTime');
+        
+        return formattedTime;
+      } catch (e) {
+        print('Error parsing timestamp: $timeString - $e');
+        return '';
+      }
+    }
+    return '';
+  }
 }
 
 class RoomPage extends StatefulWidget {
   final ApiService apiService;
+  final Function(int)? onTotalUnreadCountChanged;
+  final Function(int)? onNewMessageNotification;
 
-  const RoomPage({super.key, required this.apiService});
+  const RoomPage({
+    super.key, 
+    required this.apiService,
+    this.onTotalUnreadCountChanged,
+    this.onNewMessageNotification,
+  });
 
   @override
   State<RoomPage> createState() => _RoomPageState();
@@ -308,6 +333,9 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
           }
           _isLoading = false;
         });
+        
+        // Update total unread count after modifying rooms
+        _updateTotalUnreadCount();
       }
     });
 
@@ -389,12 +417,15 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     if (!isCurrentUser) {
       newUnreadCount++;
       print('Incrementing unread count to: $newUnreadCount');
+      
+      // Notify about new message
+      widget.onNewMessageNotification?.call(newUnreadCount);
     }
 
     final newLastMessage = {
       'sender': sender ?? 'ยังไม่มีข้อความ',
       'message': message['message'] ?? '',
-      'timestamp': message['timestamp'] ?? DateTime.now().toIso8601String(),
+      'timestamp': message['timestamp'],
     };
     print('New last message: $newLastMessage');
 
@@ -422,30 +453,55 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
       }
     });
     
+    // Update total unread count after modifying rooms
+    _updateTotalUnreadCount();
+    
     print('Room updated successfully');
   }
 
   void _updateRoomUnreadCount(String roomId, int unreadCount) {
-    final roomIndex = _chatRooms.indexWhere((room) => room.id == roomId);
-    if (roomIndex != -1) {
-      final room = _chatRooms[roomIndex];
-      final updatedRoom = ChatRoom(
-        id: room.id,
-        name: room.name,
-        description: room.description,
-        admin: room.admin,
-        lastMessage: room.lastMessage,
-        unreadCount: unreadCount,
-        color: room.color,
-        memberCount: room.memberCount,
-        userRole: room.userRole,
-        imageUrl: room.imageUrl,
-      );
-      
-      setState(() {
+    if (!mounted) return;
+
+    print('🔍 DEBUG: Updating unread count for room $roomId to $unreadCount');
+
+    setState(() {
+      final roomIndex = _chatRooms.indexWhere((room) => room.id == roomId);
+      if (roomIndex != -1) {
+        // Create a new ChatRoom with updated unread count
+        final oldRoom = _chatRooms[roomIndex];
+        final updatedRoom = ChatRoom(
+          id: oldRoom.id,
+          name: oldRoom.name,
+          description: oldRoom.description,
+          admin: oldRoom.admin,
+          lastMessage: oldRoom.lastMessage,
+          unreadCount: unreadCount,
+          color: oldRoom.color,
+          memberCount: oldRoom.memberCount,
+          userRole: oldRoom.userRole,
+          imageUrl: oldRoom.imageUrl,
+        );
         _chatRooms[roomIndex] = updatedRoom;
-      });
-    }
+        print('✅ Updated room $roomId - unreadCount: $unreadCount');
+        
+        // Update total unread count
+        _updateTotalUnreadCount();
+      } else {
+        print('❌ Room not found: $roomId');
+      }
+    });
+  }
+
+  // Method to calculate and update total unread count for rooms
+  void _updateTotalUnreadCount() {
+    final totalUnread = _chatRooms.fold<int>(0, (sum, room) {
+      return sum + room.unreadCount;
+    });
+    
+    print('🔍 DEBUG: Total unread count for rooms: $totalUnread');
+    
+    // Notify parent widget about the change
+    widget.onTotalUnreadCountChanged?.call(totalUnread);
   }
 
   Future<void> _loadUserData() async {
@@ -490,6 +546,9 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
           _chatRooms.addAll(rooms.map((room) => ChatRoom.fromJson(room)));
           _isLoading = false;
         });
+        
+        // Update total unread count after loading rooms
+        _updateTotalUnreadCount();
       }
 
       // Join all rooms to receive notifications
@@ -681,14 +740,21 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                         if (room.unreadCount > 0)
                                           Container(
                                             margin: const EdgeInsets.only(left: 10),
-                                            width: 20,
-                                            height: 20,
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: room.unreadCount > 99 ? 6 : 4,
+                                              vertical: 2,
+                                            ),
+                                            constraints: BoxConstraints(
+                                              minWidth: room.unreadCount > 99 ? 24 : 20,
+                                              minHeight: 20,
+                                            ),
                                             decoration: BoxDecoration(
-                                              color: Colors.green.shade400,
-                                              shape: BoxShape.circle,
+                                              color: Colors.green.shade500,
+                                              shape: room.unreadCount > 99 ? BoxShape.rectangle : BoxShape.circle,
+                                              borderRadius: room.unreadCount > 99 ? BorderRadius.circular(12) : null,
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: Colors.green.withOpacity(0.2),
+                                                  color: Colors.red.withOpacity(0.2),
                                                   blurRadius: 6,
                                                   offset: const Offset(0, 2),
                                                 ),
@@ -696,8 +762,12 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
                                             ),
                                             alignment: Alignment.center,
                                             child: Text(
-                                              room.unreadCount.toString(),
-                                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                              room.unreadCount > 99 ? '99+' : room.unreadCount.toString(),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
                                             ),
                                           ),
                                       ],
@@ -731,10 +801,10 @@ Future<void> _handleRoomTap(ChatRoom room) async {
   if (mounted) {
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: false, // ป้องกันการกด back button
       builder: (BuildContext context) {
         return WillPopScope(
-          onWillPop: () async => false, // ป้องกันการกด back button
+          onWillPop: () async => false,
           child: const Center(
             child: Card(
               child: Padding(
