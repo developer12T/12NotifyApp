@@ -15,9 +15,9 @@ class SocketService {
 
   SocketService._internal() {
     print('SocketService: Initializing socket with URL: ${ApiService.baseUrl}');
-    socket = IO.io(ApiService.baseUrl, <String, dynamic>{
+    socket = IO.io('https://apps.onetwotrading.co.th/', <String, dynamic>{
       'transports': ['websocket'],
-      'path': '/socket.io/',
+      'path': '/chatio/socket.io/',
       'reconnection': true,
       'forceNew': true
     });

@@ -50,6 +50,8 @@ dependencies:
   webview_flutter: ^4.4.2
   file_picker: ^10.1.9
   flutter_speed_dial: ^7.0.0
+  upgrader: ^11.4.0
+  flutter_launcher_icons: ^0.14.3
 
 
 dev_dependencies:
@@ -106,6 +108,14 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/12chat.png"
+  min_sdk_android: 21 # android min sdk min:16, default 21
+ 
+
+
 
 msix_config:
   display_name: 12Chat

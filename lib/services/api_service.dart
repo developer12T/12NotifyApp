@@ -12,7 +12,8 @@ class ApiService {
   IO.Socket? socket; // Make socket nullable
   String? userId;
   static String get baseUrl =>
-      'http://127.0.0.1:3000';
+      // 'http://127.0.0.1:3000';
+      'https://apps.onetwotrading.co.th/12chat';
   String? _token;
   bool _isInitialized = false; // Add initialization flag
 
@@ -75,9 +76,9 @@ class ApiService {
     }
 
     try {
-      socket = IO.io(baseUrl, <String, dynamic>{
+      socket = IO.io('https://apps.onetwotrading.co.th/', <String, dynamic>{
      'transports': ['websocket'],
-      'path': '/socket.io/',
+      'path': '/chatio/socket.io/',
       'reconnection': false,
       'forceNew': true
     });
@@ -226,9 +227,10 @@ class ApiService {
   }
 
   void connect() {
-    socket = IO.io(baseUrl, <String, dynamic>{
+    socket = IO.io('https://apps.onetwotrading.co.th/', <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': true,
+      'path': '/chatio/socket.io/',
       'auth': {'token': _token},
     });
   }

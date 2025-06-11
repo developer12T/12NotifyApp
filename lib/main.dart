@@ -17,7 +17,7 @@ class CustomDebugBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Banner(
-      message: 'ALPHA-TEST',
+      message: 'UAT-TEST',
       location: BannerLocation.topStart,
       color: Colors.red,
       child: Container(),

@@ -64,7 +64,7 @@ class NotiService {
       // prepare windows init settings
       const initSettingsWindows = WindowsInitializationSettings(
         appName: '12Chat',
-        appUserModelId: 'com.example.flutterNotify',
+        appUserModelId: 'com.onetwotrading.onetwochat.flutterNotify',
         guid: '12345678-1234-1234-1234-123456789012',
       );
       

@@ -18,6 +18,7 @@ class _LoginPageState extends State<LoginPage> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
   String _errorMessage = '';
 
   Future<void> _login() async {
@@ -64,13 +65,47 @@ class _LoginPageState extends State<LoginPage> {
         }
       } else {
         final error = jsonDecode(response.body);
+        String errorMessage = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+        
+        // Check if there's a specific error message from the server
+        if (error['message'] != null) {
+          errorMessage = error['message'];
+        }
+        
         setState(() {
-          _errorMessage = error['message']+ ': ' + response.statusCode ?? 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
+          _errorMessage = errorMessage;
         });
+        
+        // Show SnackBar for better visibility
+        if (mounted) {
+          // ScaffoldMessenger.of(context).showSnackBar(
+          //   SnackBar(
+          //     content: Text(errorMessage),
+          //     backgroundColor: Colors.red,
+          //     behavior: SnackBarBehavior.floating,
+          //     shape: RoundedRectangleBorder(
+          //       borderRadius: BorderRadius.circular(8),
+          //     ),
+          //     duration: Duration(seconds: 3),
+          //   ),
+          // );
+        }
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ${e.toString()}';
+        String errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
+        
+        if (e.toString().contains('SocketException')) {
+          errorMsg = 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต';
+        } else if (e.toString().contains('TimeoutException')) {
+          errorMsg = 'การเชื่อมต่อใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง';
+        } else if (e.toString().contains('HandshakeException')) {
+          errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อที่ปลอดภัย กรุณาตรวจสอบการตั้งค่าเครือข่าย';
+        } else {
+          errorMsg = 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ${e.toString()}';
+        }
+        
+        _errorMessage = errorMsg;
       });
     } finally {
       if (mounted) {
@@ -129,6 +164,14 @@ class _LoginPageState extends State<LoginPage> {
                       children: [
                         TextFormField(
                           controller: _usernameController,
+                          onChanged: (value) {
+                            // Clear error message when user starts typing
+                            if (_errorMessage.isNotEmpty) {
+                              setState(() {
+                                _errorMessage = '';
+                              });
+                            }
+                          },
                           decoration: const InputDecoration(
                             prefixIcon: Icon(Icons.person),
                             labelText: 'ชื่อผู้ใช้งาน',
@@ -148,8 +191,16 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _passwordController,
-                          obscureText: true,
-                          decoration: const InputDecoration(
+                          obscureText: _obscurePassword,
+                          onChanged: (value) {
+                            // Clear error message when user starts typing
+                            if (_errorMessage.isNotEmpty) {
+                              setState(() {
+                                _errorMessage = '';
+                              });
+                            }
+                          },
+                          decoration: InputDecoration(
                             prefixIcon: Icon(Icons.lock),
                             labelText: 'รหัสผ่าน',
                             border: OutlineInputBorder(
@@ -157,6 +208,16 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             filled: true,
                             fillColor: Color(0xFFF6F8FB),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
@@ -167,12 +228,34 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 24),
                         if (_errorMessage.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Text(
-                              _errorMessage,
-                              style: const TextStyle(color: Colors.red),
-                              textAlign: TextAlign.center,
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              border: Border.all(color: Colors.red.shade200),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.error_outline,
+                                  color: Colors.red.shade600,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _errorMessage,
+                                    style: TextStyle(
+                                      color: Colors.red.shade700,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         SizedBox(

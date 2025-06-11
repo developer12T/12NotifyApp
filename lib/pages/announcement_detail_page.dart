@@ -106,46 +106,52 @@ class AnnouncementDetailPage extends StatelessWidget {
             );
           } else {
             // Mobile: เดิม
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (announcement['imageUrl'] != null && announcement['imageUrl'].toString().isNotEmpty)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        '${ApiService.baseUrl}${announcement['imageUrl']}',
-                        fit: BoxFit.contain,
+            return SafeArea(
+              bottom: true,
+              top: false,
+              left: false,
+              right: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (announcement['imageUrl'] != null && announcement['imageUrl'].toString().isNotEmpty)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          '${ApiService.baseUrl}${announcement['imageUrl']}',
+                          fit: BoxFit.contain,
+                        ),
                       ),
-                    ),
-                  const SizedBox(height: 16),
-                  Text(
-                    announcement['title'] ?? '',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    announcement['content'] ?? '',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  if (announcement['createdAt'] != null)
+                    const SizedBox(height: 16),
                     Text(
-                      'วันที่ประกาศ: ${formatThaiDate(announcement['createdAt'])}',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      announcement['title'] ?? '',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                     ),
-                  if (announcement['createdBy'] != null)
+                    const SizedBox(height: 8),
                     Text(
-                      'โดย: ' +
-                        (announcement['createdBy'] is Map
-                          ? (announcement['createdBy']['fullNameThai'] ??
-                             announcement['createdBy']['fullName'] ??
-                             'Unknown')
-                          : (announcement['createdBy']?.toString() ?? 'Unknown')),
-                      style: Theme.of(context).textTheme.bodySmall,
+                      announcement['content'] ?? '',
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                ],
+                    const SizedBox(height: 16),
+                    if (announcement['createdAt'] != null)
+                      Text(
+                        'วันที่ประกาศ: ${formatThaiDate(announcement['createdAt'])}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    if (announcement['createdBy'] != null)
+                      Text(
+                        'โดย: ' +
+                          (announcement['createdBy'] is Map
+                            ? (announcement['createdBy']['fullNameThai'] ??
+                               announcement['createdBy']['fullName'] ??
+                               'Unknown')
+                            : (announcement['createdBy']?.toString() ?? 'Unknown')),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                ),
               ),
             );
           }

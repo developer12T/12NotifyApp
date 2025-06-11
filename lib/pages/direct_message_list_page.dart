@@ -340,6 +340,17 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
       
       // Update total unread count after modifying conversations
       _updateTotalUnreadCount();
+
+      // Sort conversations
+      conversations.sort((a, b) {
+        final aTime = a['lastMessage']?['createdAt'];
+        final bTime = b['lastMessage']?['createdAt'];
+        if (aTime == null || bTime == null) return 0;
+        final aDate = aTime is DateTime ? aTime : DateTime.tryParse(aTime.toString());
+        final bDate = bTime is DateTime ? bTime : DateTime.tryParse(bTime.toString());
+        if (aDate == null || bDate == null) return 0;
+        return bDate.compareTo(aDate);
+      });
     } catch (e) {
       print('Error handling chat list update: $e');
       print('Stack trace: ${StackTrace.current}');
@@ -456,6 +467,17 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
       
       // Update total unread count after modifying conversations
       _updateTotalUnreadCount();
+
+      // Sort conversations
+      conversations.sort((a, b) {
+        final aTime = a['lastMessage']?['createdAt'];
+        final bTime = b['lastMessage']?['createdAt'];
+        if (aTime == null || bTime == null) return 0;
+        final aDate = aTime is DateTime ? aTime : DateTime.tryParse(aTime.toString());
+        final bDate = bTime is DateTime ? bTime : DateTime.tryParse(bTime.toString());
+        if (aDate == null || bDate == null) return 0;
+        return bDate.compareTo(aDate);
+      });
     } catch (e) {
       print('Error handling new direct message notification: $e');
       print('Stack trace: ${StackTrace.current}');
@@ -583,6 +605,17 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
             
             // Join direct message rooms for all existing conversations
             _joinAllDirectMessageRooms();
+
+            // Sort conversations
+            conversations.sort((a, b) {
+              final aTime = a['lastMessage']?['createdAt'];
+              final bTime = b['lastMessage']?['createdAt'];
+              if (aTime == null || bTime == null) return 0;
+              final aDate = aTime is DateTime ? aTime : DateTime.tryParse(aTime.toString());
+              final bDate = bTime is DateTime ? bTime : DateTime.tryParse(bTime.toString());
+              if (aDate == null || bDate == null) return 0;
+              return bDate.compareTo(aDate);
+            });
           } else {
             print('API returned success: false');
             conversations = [];

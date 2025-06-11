@@ -397,11 +397,15 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                               ),
                             ),
                           const SizedBox(height: 8),
-                          Text(
-                            announcement['content'],
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              height: 1.5,
-                              color: Colors.grey[800],
+                          Flexible(
+                            child: Text(
+                              announcement['content'],
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                height: 1.5,
+                                color: Colors.grey[800],
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(height: 12),

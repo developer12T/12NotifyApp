@@ -1285,56 +1285,58 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
+      builder: (context) => SafeArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
           ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            ListTile(
-              leading: Icon(Icons.reply, color: Theme.of(context).primaryColor),
-              title: const Text('ตอบกลับ'),
-              onTap: () {
-                Navigator.pop(context);
-                _replyToMessage(message);
-              },
-            ),
-            if (message['message'] != null && message['message'].toString().trim().isNotEmpty)
               ListTile(
-                leading: Icon(Icons.copy, color: Colors.grey[700]),
-                title: const Text('คัดลอกข้อความ'),
+                leading: Icon(Icons.reply, color: Theme.of(context).primaryColor),
+                title: const Text('ตอบกลับ'),
                 onTap: () {
                   Navigator.pop(context);
-                  Clipboard.setData(ClipboardData(text: message['message']));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
-                  );
+                  _replyToMessage(message);
                 },
               ),
-            if (isCurrentUser)
-              ListTile(
-                leading: Icon(Icons.delete, color: Colors.red[700]),
-                title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await _deleteMessage(message['_id']);
-                },
-              ),
-          ],
+              if (message['message'] != null && message['message'].toString().trim().isNotEmpty)
+                ListTile(
+                  leading: Icon(Icons.copy, color: Colors.grey[700]),
+                  title: const Text('คัดลอกข้อความ'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Clipboard.setData(ClipboardData(text: message['message']));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
+                    );
+                  },
+                ),
+              if (isCurrentUser)
+                ListTile(
+                  leading: Icon(Icons.delete, color: Colors.red[700]),
+                  title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _deleteMessage(message['_id']);
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1816,9 +1818,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           if (message['isImage'] == true && message['imageUrl'] != null)
             GestureDetector(
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('กำลังพัฒนาการดูรูปภาพเต็มหน้าจอ')),
-                );
+                _showFullScreenImage(message['imageUrl']);
               },
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 200, maxHeight: 200),
@@ -1937,6 +1937,63 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     );
   }
 
+  void _showFullScreenImage(String imageUrl) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.network(
+                imageUrl.startsWith('http')
+                    ? imageUrl
+                    : '${ApiService.baseUrl}$imageUrl',
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                      color: Colors.white,
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                        const SizedBox(height: 8),
+                        Text(
+                          'เกิดข้อผิดพลาดในการโหลดรูปภาพเต็มหน้าจอ',
+                          style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1999,320 +2056,323 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           ],
         ),
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey[50],
-        ),
-        child: Column(
-          children: [
-            // Messages list
-            Expanded(
-              child: isLoading
-                  ? Center(
-                      child: CircularProgressIndicator(
-                        color: colorScheme.primary,
-                      ),
-                    )
-                  : messages.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.chat_bubble_outline,
-                                size: 64,
-                                color: Colors.grey[400],
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'ยังไม่มีข้อความ',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'เริ่มต้นการสนทนากับ ${widget.recipientName}',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[500],
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isDesktop ? 24 : 16,
-                            vertical: isDesktop ? 12 : 8,
-                          ),
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            if (index >= messages.length) {
-                              return const SizedBox.shrink();
-                            }
-                            
-                            final message = messages[index];
-                            final sender = message['sender'];
-                            final senderId = sender?['employeeID']?.toString();
-                            final isMe = senderId != null && currentUserId != null && senderId == currentUserId;
-
-                            // Date separator
-                            Widget? dateSeparator;
-                            if (index == 0 || 
-                                (index > 0 && !_isSameDay(
-                                  message['timestamp'],
-                                  messages[index - 1]['timestamp'],
-                                ))) {
-                              dateSeparator = Container(
-                                margin: const EdgeInsets.symmetric(vertical: 8),
-                                child: Center(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[200],
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      _formatDateOnly(message['timestamp']),
-                                      style: TextStyle(
-                                        color: Colors.grey[700],
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }
-
-                            return Column(
+      resizeToAvoidBottomInset: true, // เพิ่มบรรทัดนี้
+      body: SafeArea(
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+          ),
+          child: Column(
+            children: [
+              // Messages list
+              Expanded(
+                child: isLoading
+                    ? Center(
+                        child: CircularProgressIndicator(
+                          color: colorScheme.primary,
+                        ),
+                      )
+                    : messages.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                if (dateSeparator != null) dateSeparator,
-                                Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    vertical: isDesktop ? 4 : 2,
+                                Icon(
+                                  Icons.chat_bubble_outline,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'ยังไม่มีข้อความ',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
                                   ),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisAlignment: isMe
-                                        ? MainAxisAlignment.end
-                                        : MainAxisAlignment.start,
-                                    children: [
-                                      // Avatar for other user only
-                                      if (!isMe) ...[
-                                        CircleAvatar(
-                                          radius: 16,
-                                          backgroundImage: sender?['imgUrl'] != null
-                                              ? NetworkImage(sender!['imgUrl'])
-                                              : null,
-                                          backgroundColor: colorScheme.primary,
-                                          child: sender?['imgUrl'] == null
-                                              ? Text(
-                                                  sender?['fullName']?[0].toUpperCase() ?? '?',
-                                                  style: TextStyle(
-                                                    color: colorScheme.onPrimary,
-                                                    fontSize: 14,
-                                                  ),
-                                                )
-                                              : null,
-                                        ),
-                                        const SizedBox(width: 8),
-                                      ],
-                                      
-                                      // Message bubble
-                                      Flexible(
-                                        child: Column(
-                                          crossAxisAlignment: isMe
-                                              ? CrossAxisAlignment.end
-                                              : CrossAxisAlignment.start,
-                                          children: [
-                                            // Sender name (for others)
-                                            if (!isMe)
-                                              Padding(
-                                                padding: const EdgeInsets.only(
-                                                  left: 4,
-                                                  bottom: 2,
-                                                ),
-                                                child: Text(
-                                                  sender?['fullName'] ?? 'Unknown',
-                                                  style: const TextStyle(
-                                                    fontSize: 13,
-                                                    color: Colors.black87,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                              ),
-                                            _buildMessageBubble(message, isMe),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'เริ่มต้นการสนทนากับ ${widget.recipientName}',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
                                   ),
                                 ),
                               ],
-                            );
-                          },
-                        ),
-            ),
-            
-            // File previews
-            if (_selectedFile != null) _buildSelectedFilePreview(),
-            if (_selectedImage != null) _buildSelectedImagePreview(),
-            
-            // Reply preview
-            if (_replyingToMessage != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _buildReplyPreview(),
-              ),
-            
-            // Input area
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  // Image button
-                  Container(
-                    decoration: BoxDecoration(
-                      color: _selectedImage != null
-                          ? colorScheme.primary.withOpacity(0.1)
-                          : null,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: Icon(
-                        _selectedImage != null ? Icons.image : Icons.photo_outlined,
-                        color: _selectedImage != null
-                            ? colorScheme.primary
-                            : Colors.grey[600],
-                        size: 28,
-                      ),
-                      tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
-                      onPressed: _selectedImage != null 
-                          ? _sendImage 
-                          : _pickAndValidateImage,
-                    ),
-                  ),
-                  const SizedBox(width: 2),
-                  
-                  // File button
-                  Container(
-                    decoration: BoxDecoration(
-                      color: _selectedFile != null
-                          ? colorScheme.primary.withOpacity(0.1)
-                          : null,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: Icon(
-                        _selectedFile != null 
-                            ? Icons.attach_file 
-                            : Icons.attach_file_outlined,
-                        color: _selectedFile != null
-                            ? colorScheme.primary
-                            : Colors.grey[600],
-                        size: 28,
-                      ),
-                      tooltip: _selectedFile != null ? 'ส่งไฟล์' : 'เลือกไฟล์',
-                      onPressed: _selectedFile != null 
-                          ? _sendFile 
-                          : _pickAndValidateFile,
-                    ),
-                  ),
-                  const SizedBox(width: 2),
-                  
-                  // Text input
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: TextField(
-                        controller: _messageController,
-                        focusNode: _messageFocusNode,
-                        maxLines: null,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        style: const TextStyle(fontSize: 15),
-                        decoration: InputDecoration(
-                          hintText: _replyingToMessage != null
-                              ? 'พิมพ์ข้อความตอบกลับ...'
-                              : 'พิมพ์ข้อความ...',
-                          hintStyle: TextStyle(color: Colors.grey[500]),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isDesktop ? 24 : 16,
+                              vertical: isDesktop ? 12 : 8,
+                            ),
+                            itemCount: messages.length,
+                            itemBuilder: (context, index) {
+                              if (index >= messages.length) {
+                                return const SizedBox.shrink();
+                              }
+                              
+                              final message = messages[index];
+                              final sender = message['sender'];
+                              final senderId = sender?['employeeID']?.toString();
+                              final isMe = senderId != null && currentUserId != null && senderId == currentUserId;
+
+                              // Date separator
+                              Widget? dateSeparator;
+                              if (index == 0 || 
+                                  (index > 0 && !_isSameDay(
+                                    message['timestamp'],
+                                    messages[index - 1]['timestamp'],
+                                  ))) {
+                                dateSeparator = Container(
+                                  margin: const EdgeInsets.symmetric(vertical: 8),
+                                  child: Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[200],
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        _formatDateOnly(message['timestamp']),
+                                        style: TextStyle(
+                                          color: Colors.grey[700],
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return Column(
+                                children: [
+                                  if (dateSeparator != null) dateSeparator,
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: isDesktop ? 4 : 2,
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisAlignment: isMe
+                                          ? MainAxisAlignment.end
+                                          : MainAxisAlignment.start,
+                                      children: [
+                                        // Avatar for other user only
+                                        if (!isMe) ...[
+                                          CircleAvatar(
+                                            radius: 16,
+                                            backgroundImage: sender?['imgUrl'] != null
+                                                ? NetworkImage(sender!['imgUrl'])
+                                                : null,
+                                            backgroundColor: colorScheme.primary,
+                                            child: sender?['imgUrl'] == null
+                                                ? Text(
+                                                    sender?['fullName']?[0].toUpperCase() ?? '?',
+                                                    style: TextStyle(
+                                                      color: colorScheme.onPrimary,
+                                                      fontSize: 14,
+                                                    ),
+                                                  )
+                                                : null,
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        
+                                        // Message bubble
+                                        Flexible(
+                                          child: Column(
+                                            crossAxisAlignment: isMe
+                                                ? CrossAxisAlignment.end
+                                                : CrossAxisAlignment.start,
+                                            children: [
+                                              // Sender name (for others)
+                                              if (!isMe)
+                                                Padding(
+                                                  padding: const EdgeInsets.only(
+                                                    left: 4,
+                                                    bottom: 2,
+                                                  ),
+                                                  child: Text(
+                                                    sender?['fullName'] ?? 'Unknown',
+                                                    style: const TextStyle(
+                                                      fontSize: 13,
+                                                      color: Colors.black87,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              _buildMessageBubble(message, isMe),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
-                        ),
-                        onSubmitted: (_) {
-                          if (_messageController.text.trim().isNotEmpty) {
-                            _sendMessage();
-                          }
-                        },
-                      ),
+              ),
+              
+              // File previews
+              if (_selectedFile != null) _buildSelectedFilePreview(),
+              if (_selectedImage != null) _buildSelectedImagePreview(),
+              
+              // Reply preview
+              if (_replyingToMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildReplyPreview(),
+                ),
+              
+              // Input area
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  
-                  // Send button
-                  if (_messageController.text.isNotEmpty ||
-                      _selectedImage != null ||
-                      _selectedFile != null)
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    // Image button
                     Container(
                       decoration: BoxDecoration(
-                        color: colorScheme.primary,
+                        color: _selectedImage != null
+                            ? colorScheme.primary.withOpacity(0.1)
+                            : null,
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
-                        onPressed: isSending
-                            ? null
-                            : _selectedImage != null
-                                ? _sendImage
-                                : _selectedFile != null
-                                    ? _sendFile
-                                    : _sendMessage,
-                        icon: isSending
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
-                            : const Icon(Icons.send_rounded, size: 20),
-                        color: Colors.white,
-                        tooltip: _selectedImage != null
-                            ? 'ส่งรูปภาพ'
-                            : _selectedFile != null
-                                ? 'ส่งไฟล์'
-                                : 'ส่งข้อความ',
+                        icon: Icon(
+                          _selectedImage != null ? Icons.image : Icons.photo_outlined,
+                          color: _selectedImage != null
+                              ? colorScheme.primary
+                              : Colors.grey[600],
+                          size: 28,
+                        ),
+                        tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
+                        onPressed: _selectedImage != null 
+                            ? _sendImage 
+                            : _pickAndValidateImage,
                       ),
                     ),
-                ],
+                    const SizedBox(width: 2),
+                    
+                    // File button
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _selectedFile != null
+                            ? colorScheme.primary.withOpacity(0.1)
+                            : null,
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        icon: Icon(
+                          _selectedFile != null 
+                              ? Icons.attach_file 
+                              : Icons.attach_file_outlined,
+                          color: _selectedFile != null
+                              ? colorScheme.primary
+                              : Colors.grey[600],
+                          size: 28,
+                        ),
+                        tooltip: _selectedFile != null ? 'ส่งไฟล์' : 'เลือกไฟล์',
+                        onPressed: _selectedFile != null 
+                            ? _sendFile 
+                            : _pickAndValidateFile,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    
+                    // Text input
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: TextField(
+                          controller: _messageController,
+                          focusNode: _messageFocusNode,
+                          maxLines: null,
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: TextInputAction.newline,
+                          style: const TextStyle(fontSize: 15),
+                          decoration: InputDecoration(
+                            hintText: _replyingToMessage != null
+                                ? 'พิมพ์ข้อความตอบกลับ...'
+                                : 'พิมพ์ข้อความ...',
+                            hintStyle: TextStyle(color: Colors.grey[500]),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                          ),
+                          onSubmitted: (_) {
+                            if (_messageController.text.trim().isNotEmpty) {
+                              _sendMessage();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    
+                    // Send button
+                    if (_messageController.text.isNotEmpty ||
+                        _selectedImage != null ||
+                        _selectedFile != null)
+                      Container(
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          onPressed: isSending
+                              ? null
+                              : _selectedImage != null
+                                  ? _sendImage
+                                  : _selectedFile != null
+                                      ? _sendFile
+                                      : _sendMessage,
+                          icon: isSending
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded, size: 20),
+                          color: Colors.white,
+                          tooltip: _selectedImage != null
+                              ? 'ส่งรูปภาพ'
+                              : _selectedFile != null
+                                  ? 'ส่งไฟล์'
+                                  : 'ส่งข้อความ',
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -1587,6 +1587,7 @@ class _ChatPageState extends State<ChatPage> {
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
+      resizeToAvoidBottomInset: true, // เพิ่มบรรทัดนี้
       appBar: AppBar(
         elevation: 0,
         backgroundColor: roomColor,
@@ -1719,560 +1720,562 @@ class _ChatPageState extends State<ChatPage> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child:
-                isLoading
-                    ? Center(
-                      child: CircularProgressIndicator(
-                        color: colorScheme.primary,
-                      ),
-                    )
-                    : Stack(
-                      children: [
-                        RefreshIndicator(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child:
+                  isLoading
+                      ? Center(
+                        child: CircularProgressIndicator(
                           color: colorScheme.primary,
-                          onRefresh: () async {
-                            setState(() {
-                              currentPage = 1;
-                              messages = [];
-                            });
-                            await fetchMessages();
-                          },
-                          child: ListView.builder(
-                            controller: _scrollController,
-                            reverse: true,
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isDesktop ? 24 : 16,
-                              vertical: isDesktop ? 12 : 8,
-                            ),
-                            itemCount:
-                                messages.length + (isLoadingMore ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (index == messages.length) {
-                                return Center(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: CircularProgressIndicator(
-                                      color: colorScheme.primary,
-                                      strokeWidth: 2,
+                        ),
+                      )
+                      : Stack(
+                        children: [
+                          RefreshIndicator(
+                            color: colorScheme.primary,
+                            onRefresh: () async {
+                              setState(() {
+                                currentPage = 1;
+                                messages = [];
+                              });
+                              await fetchMessages();
+                            },
+                            child: ListView.builder(
+                              controller: _scrollController,
+                              reverse: true,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isDesktop ? 24 : 16,
+                                vertical: isDesktop ? 12 : 8,
+                              ),
+                              itemCount:
+                                  messages.length + (isLoadingMore ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                if (index == messages.length) {
+                                  return Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8.0),
+                                      child: CircularProgressIndicator(
+                                        color: colorScheme.primary,
+                                        strokeWidth: 2,
+                                      ),
                                     ),
-                                  ),
-                                );
-                              }
+                                  );
+                                }
 
-                              final messageData = messages[index];
-                              final Map<String, dynamic> message =
-                                  Map<String, dynamic>.from(messageData);
-                              final Map<String, dynamic> sender =
-                                  Map<String, dynamic>.from(message['sender']);
-                              final messageSenderId = sender['employeeID'];
-                              final isCurrentUser =
-                                  currentUserId != null &&
-                                  messageSenderId != null &&
-                                  messageSenderId == currentUserId;
+                                final messageData = messages[index];
+                                final Map<String, dynamic> message =
+                                    Map<String, dynamic>.from(messageData);
+                                final Map<String, dynamic> sender =
+                                    Map<String, dynamic>.from(message['sender']);
+                                final messageSenderId = sender['employeeID'];
+                                final isCurrentUser =
+                                    currentUserId != null &&
+                                    messageSenderId != null &&
+                                    messageSenderId == currentUserId;
 
-                              String senderName = 'Unknown';
-                              String senderInitial = '?';
-                              if (sender['fullName'] != null) {
-                                senderName = sender['fullName'];
-                                senderInitial =
-                                    senderName.isNotEmpty
-                                        ? senderName[0].toUpperCase()
-                                        : '?';
-                              }
+                                String senderName = 'Unknown';
+                                String senderInitial = '?';
+                                if (sender['fullName'] != null) {
+                                  senderName = sender['fullName'];
+                                  senderInitial =
+                                      senderName.isNotEmpty
+                                          ? senderName[0].toUpperCase()
+                                          : '?';
+                                }
 
-                              Widget? dateSeparator;
-                              if (index == messages.length - 1 ||
-                                  (index < messages.length - 1 &&
-                                   !isSameDay(message['timestamp'], messages[index + 1]['timestamp']))) {
-                                dateSeparator = Container(
-                                  margin: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  child: Center(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey[200],
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        formatDateOnly(message['timestamp'] ?? ''),
-                                        style: TextStyle(
-                                          color: Colors.grey[700],
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
+                                Widget? dateSeparator;
+                                if (index == messages.length - 1 ||
+                                    (index < messages.length - 1 &&
+                                     !isSameDay(message['timestamp'], messages[index + 1]['timestamp']))) {
+                                  dateSeparator = Container(
+                                    margin: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                    child: Center(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[200],
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Text(
+                                          formatDateOnly(message['timestamp'] ?? ''),
+                                          style: TextStyle(
+                                            color: Colors.grey[700],
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                );
-                              }
+                                  );
+                                }
 
-                              return AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 300),
-                                child: Column(
-                                  key: ValueKey(message['_id']),
-                                  children: [
-                                    if (dateSeparator != null) dateSeparator,
-                                    Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        vertical: isDesktop ? 6 : 4,
-                                      ),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisAlignment:
-                                            isCurrentUser
-                                                ? MainAxisAlignment.end
-                                                : MainAxisAlignment.start,
-                                        children: [
-                                          if (!isCurrentUser) ...[
-                                            GestureDetector(
-                                              onTap:
-                                                  sender['role'] == 'bot'
-                                                      ? null
-                                                      : () =>
-                                                          _showProfileBottomSheet(
-                                                            sender,
-                                                          ),
-                                              child: Container(
-                                                width: isDesktop ? 48 : 42,
-                                                height: isDesktop ? 48 : 42,
-                                                margin: EdgeInsets.only(
-                                                  right: isDesktop ? 12 : 8,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color:
-                                                      sender['role'] == 'bot'
-                                                          ? Colors.white
-                                                              .withOpacity(0.1)
-                                                          : null,
-                                                  image:
-                                                      sender['role'] != 'bot' &&
-                                                              sender['imgUrl'] !=
-                                                                  null
-                                                          ? DecorationImage(
-                                                            image: NetworkImage(
-                                                              sender['imgUrl'],
-                                                            ),
-                                                            fit: BoxFit.cover,
-                                                            onError: (
-                                                              exception,
-                                                              stackTrace,
-                                                            ) {
-                                                              print(
-                                                                'Error loading image: $exception',
-                                                              );
-                                                            },
-                                                          )
-                                                          : null,
-                                                  gradient:
-                                                      sender['role'] != 'bot' &&
-                                                              sender['imgUrl'] ==
-                                                                  null
-                                                          ? LinearGradient(
-                                                            colors: [
-                                                              colorScheme
-                                                                  .primary
-                                                                  .withOpacity(
-                                                                    0.8,
-                                                                  ),
-                                                              colorScheme
-                                                                  .primary,
-                                                            ],
-                                                          )
-                                                          : null,
-                                                ),
-                                                child:
+                                return AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  child: Column(
+                                    key: ValueKey(message['_id']),
+                                    children: [
+                                      if (dateSeparator != null) dateSeparator,
+                                      Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          vertical: isDesktop ? 6 : 4,
+                                        ),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisAlignment:
+                                              isCurrentUser
+                                                  ? MainAxisAlignment.end
+                                                  : MainAxisAlignment.start,
+                                          children: [
+                                            if (!isCurrentUser) ...[
+                                              GestureDetector(
+                                                onTap:
                                                     sender['role'] == 'bot'
-                                                        ? Image.asset(
-                                                          'assets/images/mascot.png',
-                                                          fit: BoxFit.cover,
-                                                        )
-                                                        : sender['imgUrl'] ==
-                                                            null
-                                                        ? Center(
-                                                          child: Text(
-                                                            senderInitial,
-                                                            style:
-                                                                const TextStyle(
-                                                                  color:
-                                                                      Colors
-                                                                          .white,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .bold,
+                                                        ? null
+                                                        : () =>
+                                                            _showProfileBottomSheet(
+                                                              sender,
+                                                            ),
+                                                child: Container(
+                                                  width: isDesktop ? 48 : 42,
+                                                  height: isDesktop ? 48 : 42,
+                                                  margin: EdgeInsets.only(
+                                                    right: isDesktop ? 12 : 8,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    color:
+                                                        sender['role'] == 'bot'
+                                                            ? Colors.white
+                                                                .withOpacity(0.1)
+                                                            : null,
+                                                    image:
+                                                        sender['role'] != 'bot' &&
+                                                                sender['imgUrl'] !=
+                                                                    null
+                                                            ? DecorationImage(
+                                                              image: NetworkImage(
+                                                                sender['imgUrl'],
+                                                              ),
+                                                              fit: BoxFit.cover,
+                                                              onError: (
+                                                                exception,
+                                                                stackTrace,
+                                                              ) {
+                                                                print(
+                                                                  'Error loading image: $exception',
+                                                                );
+                                                              },
+                                                            )
+                                                            : null,
+                                                    gradient:
+                                                        sender['role'] != 'bot' &&
+                                                                sender['imgUrl'] ==
+                                                                    null
+                                                            ? LinearGradient(
+                                                              colors: [
+                                                                colorScheme
+                                                                    .primary
+                                                                    .withOpacity(
+                                                                      0.8,
+                                                                    ),
+                                                                colorScheme
+                                                                    .primary,
+                                                              ],
+                                                            )
+                                                            : null,
+                                                  ),
+                                                  child:
+                                                      sender['role'] == 'bot'
+                                                          ? Image.asset(
+                                                            'assets/images/mascot.png',
+                                                            fit: BoxFit.cover,
+                                                          )
+                                                          : sender['imgUrl'] ==
+                                                              null
+                                                          ? Center(
+                                                            child: Text(
+                                                              senderInitial,
+                                                              style:
+                                                                  const TextStyle(
+                                                                    color:
+                                                                        Colors
+                                                                            .white,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .bold,
+                                                                  ),
+                                                            ),
+                                                          )
+                                                          : null,
+                                                ),
+                                              ),
+                                            ],
+                                            Flexible(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    isCurrentUser
+                                                        ? CrossAxisAlignment.end
+                                                        : CrossAxisAlignment
+                                                            .start,
+                                                children: [
+                                                  if (!isCurrentUser)
+                                                    Padding(
+                                                      padding: EdgeInsets.only(
+                                                        left: isDesktop ? 16 : 12,
+                                                        bottom: isDesktop ? 6 : 4,
+                                                      ),
+                                                      child: Text(
+                                                        senderName,
+                                                        style: TextStyle(
+                                                          fontSize:
+                                                              isDesktop ? 15 : 13,
+                                                          color:
+                                                              sender['role'] ==
+                                                                      'bot'
+                                                                  ? Colors.red
+                                                                  : Colors
+                                                                      .grey[700],
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  Stack(
+                                                    children: [
+                                                      AnimatedContainer(
+                                                        duration: const Duration(
+                                                          milliseconds: 300,
+                                                        ),
+                                                        margin: EdgeInsets.only(
+                                                          left:
+                                                              isCurrentUser
+                                                                  ? (isDesktop
+                                                                      ? 80
+                                                                      : 64)
+                                                                  : 0,
+                                                          right:
+                                                              isCurrentUser
+                                                                  ? 0
+                                                                  : (isDesktop
+                                                                      ? 80
+                                                                      : 64),
+                                                        ),
+                                                        padding:
+                                                            EdgeInsets.symmetric(
+                                                              horizontal:
+                                                                  isDesktop
+                                                                      ? 20
+                                                                      : 16,
+                                                              vertical:
+                                                                  isDesktop
+                                                                      ? 16
+                                                                      : 12,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color:
+                                                              message['isSending'] ==
+                                                                      true
+                                                                  ? Colors
+                                                                      .grey[200]
+                                                                  : isCurrentUser
+                                                                  ? const Color(
+                                                                      0xFFC3F69D,
+                                                                    )
+                                                                  : Colors.white,
+                                                          borderRadius: BorderRadius.only(
+                                                            topLeft:
+                                                                const Radius.circular(
+                                                                  20,
+                                                                ),
+                                                            topRight:
+                                                                const Radius.circular(
+                                                                  20,
+                                                                ),
+                                                            bottomLeft:
+                                                                Radius.circular(
+                                                                  isCurrentUser
+                                                                      ? 20
+                                                                      : 4,
+                                                                ),
+                                                            bottomRight:
+                                                                Radius.circular(
+                                                                  isCurrentUser
+                                                                      ? 4
+                                                                      : 20,
                                                                 ),
                                                           ),
-                                                        )
-                                                        : null,
+                                                          boxShadow: [
+                                                            BoxShadow(
+                                                              color: Colors.black
+                                                                  .withOpacity(
+                                                                    0.05,
+                                                                  ),
+                                                              blurRadius: 8,
+                                                              offset:
+                                                                  const Offset(
+                                                                    0,
+                                                                    2,
+                                                                  ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                        child: Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            _buildMessageContent(
+                                                              message,
+                                                              isCurrentUser,
+                                                            ),
+                                                            SizedBox(height: 6),
+                                                            Row(
+                                                              mainAxisAlignment:
+                                                                  MainAxisAlignment
+                                                                      .spaceBetween,
+                                                              children: [
+                                                                Text(
+                                                                  formatTime(message['timestamp'] ?? ''),
+                                                                  style: TextStyle(
+                                                                    fontSize: 12,
+                                                                    color:
+                                                                        Colors
+                                                                            .grey[700],
+                                                                  ),
+                                                                ),
+                                                                Material(
+                                                                  color:
+                                                                      Colors
+                                                                          .transparent,
+                                                                  child: InkWell(
+                                                                    onTap:
+                                                                        () => _showMessageMenu(
+                                                                          message,
+                                                                          isCurrentUser,
+                                                                        ),
+                                                                    borderRadius:
+                                                                        BorderRadius.circular(
+                                                                          12,
+                                                                        ),
+                                                                    child: Container(
+                                                                      padding:
+                                                                          const EdgeInsets.all(
+                                                                            6,
+                                                                          ),
+                                                                      decoration: BoxDecoration(
+                                                                        color: Theme.of(
+                                                                          context,
+                                                                        ).primaryColor.withOpacity(
+                                                                          0.1,
+                                                                        ),
+                                                                        borderRadius:
+                                                                            BorderRadius.circular(
+                                                                              12,
+                                                                            ),
+                                                                      ),
+                                                                      child: Icon(
+                                                                        Icons.more_horiz,
+                                                                        size: 18,
+                                                                        color:
+                                                                            Theme.of(
+                                                                              context,
+                                                                            ).primaryColor,
+                                                                      ),
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ],
-                                          Flexible(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  isCurrentUser
-                                                      ? CrossAxisAlignment.end
-                                                      : CrossAxisAlignment
-                                                          .start,
-                                              children: [
-                                                if (!isCurrentUser)
-                                                  Padding(
-                                                    padding: EdgeInsets.only(
-                                                      left: isDesktop ? 16 : 12,
-                                                      bottom: isDesktop ? 6 : 4,
-                                                    ),
-                                                    child: Text(
-                                                      senderName,
-                                                      style: TextStyle(
-                                                        fontSize:
-                                                            isDesktop ? 15 : 13,
-                                                        color:
-                                                            sender['role'] ==
-                                                                    'bot'
-                                                                ? Colors.red
-                                                                : Colors
-                                                                    .grey[700],
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                Stack(
-                                                  children: [
-                                                    AnimatedContainer(
-                                                      duration: const Duration(
-                                                        milliseconds: 300,
-                                                      ),
-                                                      margin: EdgeInsets.only(
-                                                        left:
-                                                            isCurrentUser
-                                                                ? (isDesktop
-                                                                    ? 80
-                                                                    : 64)
-                                                                : 0,
-                                                        right:
-                                                            isCurrentUser
-                                                                ? 0
-                                                                : (isDesktop
-                                                                    ? 80
-                                                                    : 64),
-                                                      ),
-                                                      padding:
-                                                          EdgeInsets.symmetric(
-                                                            horizontal:
-                                                                isDesktop
-                                                                    ? 20
-                                                                    : 16,
-                                                            vertical:
-                                                                isDesktop
-                                                                    ? 16
-                                                                    : 12,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        color:
-                                                            message['isSending'] ==
-                                                                    true
-                                                                ? Colors
-                                                                    .grey[200]
-                                                                : isCurrentUser
-                                                                ? const Color(
-                                                                  0xFFC3F69D,
-                                                                )
-                                                                : Colors.white,
-                                                        borderRadius: BorderRadius.only(
-                                                          topLeft:
-                                                              const Radius.circular(
-                                                                20,
-                                                              ),
-                                                          topRight:
-                                                              const Radius.circular(
-                                                                20,
-                                                              ),
-                                                          bottomLeft:
-                                                              Radius.circular(
-                                                                isCurrentUser
-                                                                    ? 20
-                                                                    : 4,
-                                                              ),
-                                                          bottomRight:
-                                                              Radius.circular(
-                                                                isCurrentUser
-                                                                    ? 4
-                                                                    : 20,
-                                                              ),
-                                                        ),
-                                                        boxShadow: [
-                                                          BoxShadow(
-                                                            color: Colors.black
-                                                                .withOpacity(
-                                                                  0.05,
-                                                                ),
-                                                            blurRadius: 8,
-                                                            offset:
-                                                                const Offset(
-                                                                  0,
-                                                                  2,
-                                                                ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      child: Column(
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .start,
-                                                        children: [
-                                                          _buildMessageContent(
-                                                            message,
-                                                            isCurrentUser,
-                                                          ),
-                                                          SizedBox(height: 6),
-                                                          Row(
-                                                            mainAxisAlignment:
-                                                                MainAxisAlignment
-                                                                    .spaceBetween,
-                                                            children: [
-                                                              Text(
-                                                                formatTime(message['timestamp'] ?? ''),
-                                                                style: TextStyle(
-                                                                  fontSize: 12,
-                                                                  color:
-                                                                      Colors
-                                                                          .grey[700],
-                                                                ),
-                                                              ),
-                                                              Material(
-                                                                color:
-                                                                    Colors
-                                                                        .transparent,
-                                                                child: InkWell(
-                                                                  onTap:
-                                                                      () => _showMessageMenu(
-                                                                        message,
-                                                                        isCurrentUser,
-                                                                      ),
-                                                                  borderRadius:
-                                                                      BorderRadius.circular(
-                                                                        12,
-                                                                      ),
-                                                                  child: Container(
-                                                                    padding:
-                                                                        const EdgeInsets.all(
-                                                                          6,
-                                                                        ),
-                                                                    decoration: BoxDecoration(
-                                                                      color: Theme.of(
-                                                                        context,
-                                                                      ).primaryColor.withOpacity(
-                                                                        0.1,
-                                                                      ),
-                                                                      borderRadius:
-                                                                          BorderRadius.circular(
-                                                                            12,
-                                                                          ),
-                                                                    ),
-                                                                    child: Icon(
-                                                                      Icons.more_horiz,
-                                                                      size: 18,
-                                                                      color:
-                                                                          Theme.of(
-                                                                            context,
-                                                                          ).primaryColor,
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-          ),
-          // Move file preview here, before the message input
-          if (_selectedFile != null) _buildSelectedFilePreview(),
-          if (_selectedImage != null) _buildSelectedImagePreview(),
-          if (_replyingToMessage != null) 
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _buildReplyPreview(),
+                        ],
+                      ),
             ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: _selectedImage != null
-                        ? colorScheme.primary.withOpacity(0.1)
-                        : null,
-                    shape: BoxShape.circle,
+            // Move file preview here, before the message input
+            if (_selectedFile != null) _buildSelectedFilePreview(),
+            if (_selectedImage != null) _buildSelectedImagePreview(),
+            if (_replyingToMessage != null) 
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _buildReplyPreview(),
+              ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, -2),
                   ),
-                  child: IconButton(
-                    icon: Icon(
-                      _selectedImage != null
-                          ? Icons.image
-                          : Icons.photo_outlined,
-                      color: _selectedImage != null
-                          ? colorScheme.primary
-                          : Colors.grey[600],
-                      size: 28,
-                    ),
-                    tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
-                    onPressed: _selectedImage != null ? _sendImage : _pickAndValidateImage,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Container(
-                  decoration: BoxDecoration(
-                    color: _selectedFile != null
-                        ? colorScheme.primary.withOpacity(0.1)
-                        : null,
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: Icon(
-                      _selectedFile != null
-                          ? Icons.attach_file
-                          : Icons.attach_file_outlined,
-                      color: _selectedFile != null
-                          ? colorScheme.primary
-                          : Colors.grey[600],
-                      size: 28,
-                    ),
-                    tooltip: _selectedFile != null ? 'ส่งไฟล์' : 'เลือกไฟล์',
-                    onPressed: _selectedFile != null ? _sendFile : _pickAndValidateFile,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Expanded(
-                  child: Container(
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
                     decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(24),
+                      color: _selectedImage != null
+                          ? colorScheme.primary.withOpacity(0.1)
+                          : null,
+                      shape: BoxShape.circle,
                     ),
-                    child: RawKeyboardListener(
-                      focusNode: FocusNode(),
-                      onKey: (RawKeyEvent event) {
-                        if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
-                          if (event.isShiftPressed) {
-                            // Insert new line
-                            final controller = _messageController;
-                            final text = controller.text;
-                            final selection = controller.selection;
-                            final newText = text.replaceRange(selection.start, selection.end, '');
-                            controller.text = newText;
-                            controller.selection = TextSelection.collapsed(offset: selection.start + 1);
-                          } else {
-                            // ส่งข้อความ
-                            _sendMessage();
+                    child: IconButton(
+                      icon: Icon(
+                        _selectedImage != null
+                            ? Icons.image
+                            : Icons.photo_outlined,
+                        color: _selectedImage != null
+                            ? colorScheme.primary
+                            : Colors.grey[600],
+                        size: 28,
+                      ),
+                      tooltip: _selectedImage != null ? 'ส่งรูปภาพ' : 'เลือกรูปภาพ',
+                      onPressed: _selectedImage != null ? _sendImage : _pickAndValidateImage,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _selectedFile != null
+                          ? colorScheme.primary.withOpacity(0.1)
+                          : null,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: Icon(
+                        _selectedFile != null
+                            ? Icons.attach_file
+                            : Icons.attach_file_outlined,
+                        color: _selectedFile != null
+                            ? colorScheme.primary
+                            : Colors.grey[600],
+                        size: 28,
+                      ),
+                      tooltip: _selectedFile != null ? 'ส่งไฟล์' : 'เลือกไฟล์',
+                      onPressed: _selectedFile != null ? _sendFile : _pickAndValidateFile,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: RawKeyboardListener(
+                        focusNode: FocusNode(),
+                        onKey: (RawKeyEvent event) {
+                          if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                            if (event.isShiftPressed) {
+                              // Insert new line
+                              final controller = _messageController;
+                              final text = controller.text;
+                              final selection = controller.selection;
+                              final newText = text.replaceRange(selection.start, selection.end, '');
+                              controller.text = newText;
+                              controller.selection = TextSelection.collapsed(offset: selection.start + 1);
+                            } else {
+                              // ส่งข้อความ
+                              _sendMessage();
+                            }
                           }
-                        }
-                      },
-                      child: TextField(
-                        controller: _messageController,
-                        focusNode: _messageFocusNode,
-                        maxLines: null,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        style: const TextStyle(fontSize: 15),
-                        decoration: InputDecoration(
-                          hintText:
-                              _replyingToMessage != null
-                                  ? 'พิมพ์ข้อความตอบกลับ...'
-                                  : 'พิมพ์ข้อความ...',
-                          hintStyle: TextStyle(color: Colors.grey[500]),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
+                        },
+                        child: TextField(
+                          controller: _messageController,
+                          focusNode: _messageFocusNode,
+                          maxLines: null,
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: TextInputAction.newline,
+                          style: const TextStyle(fontSize: 15),
+                          decoration: InputDecoration(
+                            hintText:
+                                _replyingToMessage != null
+                                    ? 'พิมพ์ข้อความตอบกลับ...'
+                                    : 'พิมพ์ข้อความ...',
+                            hintStyle: TextStyle(color: Colors.grey[500]),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                if (_messageController.text.trim().isNotEmpty ||
-                    _selectedImage != null ||
-                    _selectedFile != null)
-                  Container(
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      onPressed: isSending
-                          ? null
-                          : _selectedImage != null
-                              ? _sendImage
-                              : _selectedFile != null
-                                  ? _sendFile
-                                  : _sendMessage,
-                      icon: isSending
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
+                  const SizedBox(width: 12),
+                  if (_messageController.text.trim().isNotEmpty ||
+                      _selectedImage != null ||
+                      _selectedFile != null)
+                    Container(
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        onPressed: isSending
+                            ? null
+                            : _selectedImage != null
+                                ? _sendImage
+                                : _selectedFile != null
+                                    ? _sendFile
+                                    : _sendMessage,
+                        icon: isSending
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
                                 ),
+                              )
+                            : Icon(
+                                _selectedImage != null
+                                    ? Icons.send_rounded
+                                    : _selectedFile != null
+                                        ? Icons.send_rounded
+                                        : Icons.send_rounded,
+                                size: 20,
                               ),
-                            )
-                          : Icon(
-                              _selectedImage != null
-                                  ? Icons.send_rounded
-                                  : _selectedFile != null
-                                      ? Icons.send_rounded
-                                      : Icons.send_rounded,
-                              size: 20,
-                            ),
-                      color: Colors.white,
-                      tooltip: _selectedImage != null
-                          ? 'ส่งรูปภาพ'
-                          : _selectedFile != null
-                              ? 'ส่งไฟล์'
-                              : 'ส่งข้อความ',
+                        color: Colors.white,
+                        tooltip: _selectedImage != null
+                            ? 'ส่งรูปภาพ'
+                            : _selectedFile != null
+                                ? 'ส่งไฟล์'
+                                : 'ส่งข้อความ',
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2629,58 +2632,60 @@ class _ChatPageState extends State<ChatPage> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
+      builder: (context) => SafeArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
           ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.reply,
-                color: Theme.of(context).primaryColor,
-              ),
-              title: const Text('ตอบกลับ'),
-              onTap: () {
-                Navigator.pop(context);
-                _replyToMessage(message);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.copy, color: Colors.grey[700]),
-              title: const Text('คัดลอกข้อความ'),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
-                );
-              },
-            ),
-            if (isCurrentUser)
               ListTile(
-                leading: Icon(Icons.delete, color: Colors.red[700]),
-                title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
+                leading: Icon(
+                  Icons.reply,
+                  color: Theme.of(context).primaryColor,
+                ),
+                title: const Text('ตอบกลับ'),
                 onTap: () {
                   Navigator.pop(context);
-                  _deleteMessage(message['_id']);
+                  _replyToMessage(message);
                 },
               ),
-            const SizedBox(height: 8),
-          ],
+              ListTile(
+                leading: Icon(Icons.copy, color: Colors.grey[700]),
+                title: const Text('คัดลอกข้อความ'),
+                onTap: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('คัดลอกข้อความแล้ว')),
+                  );
+                },
+              ),
+              if (isCurrentUser)
+                ListTile(
+                  leading: Icon(Icons.delete, color: Colors.red[700]),
+                  title: Text('ลบ', style: TextStyle(color: Colors.red[700])),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _deleteMessage(message['_id']);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );

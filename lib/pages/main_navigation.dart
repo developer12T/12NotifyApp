@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:io';
 // import 'package:package_info_plus/package_info_plus.dart';  // Commented out as we use hardcoded version
 import 'announcements_page.dart';
 import 'room_page.dart';
@@ -20,7 +21,7 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   String _userName = '';
-  String _version = 'alpha-test 1.0.0';  // Hardcoded version
+  String _version = 'uat-test 1.0.0';  // Hardcoded version
   final ApiService _apiService = ApiService();
   int _totalUnreadCount = 0; // Add total unread count
   int _directMessagesUnreadCount = 0; // Track direct messages unread count
@@ -113,55 +114,57 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
       ),
       isScrollControlled: true,
       builder: (BuildContext context) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.logout, color: Colors.red, size: 48),
-              const SizedBox(height: 12),
-              const Text(
-                'ออกจากระบบ',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'คุณต้องการออกจากระบบใช่หรือไม่?',
-                style: TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.logout, color: Colors.red, size: 48),
+                const SizedBox(height: 12),
+                const Text(
+                  'ออกจากระบบ',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'คุณต้องการออกจากระบบใช่หรือไม่?',
+                  style: TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
+                        onPressed: () => Navigator.of(context).pop(true),
+                        child: const Text('ยืนยัน'),
                       ),
-                      onPressed: () => Navigator.of(context).pop(true),
-                      child: const Text('ยืนยัน'),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.black,
-                        side: BorderSide(color: Colors.grey.shade400),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.black,
+                          side: BorderSide(color: Colors.grey.shade400),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: const Text('ยกเลิก'),
                       ),
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text('ยกเลิก'),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -277,7 +280,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width > 600;
+    final isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
     return Scaffold(
       appBar: PreferredSize(
