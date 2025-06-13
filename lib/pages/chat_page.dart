@@ -23,6 +23,7 @@ class ChatPage extends StatefulWidget {
   final String userRole;
   final String? imageUrl;
   final String color;
+  final Function(String)? onEnterChatRoom; // เพิ่ม callback
 
   const ChatPage({
     super.key,
@@ -32,6 +33,7 @@ class ChatPage extends StatefulWidget {
     required this.userRole,
     this.imageUrl,
     required this.color,
+    this.onEnterChatRoom, // เพิ่ม parameter
   });
 
   @override
@@ -68,6 +70,10 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     print('ChatPage initialized for room: ${widget.roomId}');
+    
+    // Notify parent that we entered this chat room
+    widget.onEnterChatRoom?.call(widget.roomId);
+    
     _loadCurrentUser().then((_) {
       // Only mark as read after user ID is loaded
       if (currentUserId != null) {
@@ -133,12 +139,7 @@ class _ChatPageState extends State<ChatPage> {
         employeeId: currentUserId!,
         replyToId: _replyingToMessage?['_id'],
         replyToMessage: _replyingToMessage != null
-            ? {
-                'message': _replyingToMessage!['message'],
-                'sender': _replyingToMessage!['sender'],
-                'isImage': _replyingToMessage!['isImage'] ?? false,
-                'imageUrl': _replyingToMessage!['imageUrl'],
-              }
+            ? _replyingToMessage!['message']?.toString() ?? ''
             : null,
       );
 
@@ -501,6 +502,9 @@ class _ChatPageState extends State<ChatPage> {
   void _setupSocketListeners() {
     print('Setting up socket listeners...');
 
+    // Clean up any existing listeners first to avoid duplicates
+    _cleanupSocketListeners();
+
     // Add listener for unreadCountUpdate
     widget.apiService.socket?.on('unreadCountUpdate', (data) {
       print('Received unreadCountUpdate event: $data');
@@ -592,8 +596,11 @@ class _ChatPageState extends State<ChatPage> {
       }
     });
 
-    widget.apiService.onNewMessage((dynamic data) {
-      print('New message data: $data');
+    // Set up new message listener using the unified approach
+    widget.apiService.socket?.on('newMessage', (data) {
+      print('=== ChatPage: New message received ===');
+      print('Data: $data');
+      print('Current room ID: ${widget.roomId}');
 
       if (!mounted) {
         print('Widget is not mounted, skipping message update');
@@ -622,6 +629,13 @@ class _ChatPageState extends State<ChatPage> {
         print('- Timestamp: ${message['timestamp']}');
         print('- Is Read: ${message['isRead']}');
         print('- Success: ${message['success']}');
+
+        // Check if message is for the current room - EARLY RETURN IF NOT
+        final messageRoomId = message['room']?.toString().replaceAll(RegExp(r'[\[\]]'), '');
+        if (messageRoomId != widget.roomId) {
+          print('Message is for different room ($messageRoomId), skipping. Current room: ${widget.roomId}');
+          return;
+        }
 
         // Check if message already exists in the list
         final messageId = message['_id']?.toString();
@@ -693,13 +707,27 @@ class _ChatPageState extends State<ChatPage> {
           return;
         }
 
+        print('=== Adding message to UI ===');
         setState(() {
           messages.insert(0, processedMessage);
         });
+        print('=== Message added successfully ===');
       } else {
         print('Received invalid message format: $data');
       }
     });
+  }
+
+  void _cleanupSocketListeners() {
+    print('Cleaning up existing socket listeners...');
+    widget.apiService.socket?.off('unreadCountUpdate');
+    widget.apiService.socket?.off('connect');
+    widget.apiService.socket?.off('disconnect');
+    widget.apiService.socket?.off('connecting');
+    widget.apiService.socket?.off('reconnect');
+    widget.apiService.socket?.off('reconnect_attempt');
+    widget.apiService.socket?.off('messageDeleted');
+    widget.apiService.socket?.off('newMessage');
   }
 
   Future<void> fetchMoreMessages() async {
@@ -893,7 +921,34 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     print('ChatPage disposed for room: ${widget.roomId}'); // Debug log
-    widget.apiService.leaveRoom(widget.roomId); // Leave room when disposing
+    
+    // Notify parent that we left this chat room
+    widget.onEnterChatRoom?.call(''); // ส่ง empty string เพื่อบอกว่าออกจากห้อง
+    
+    // Leave room when disposing
+    widget.apiService.leaveRoom(widget.roomId);
+    
+    // Clean up socket listeners specific to this chat page
+    _cleanupSocketListeners();
+    
+    // Re-subscribe to chat list updates for the list page with better timing
+    if (currentUserId != null && widget.apiService.socket?.connected == true) {
+      print('Re-subscribing to chat list after leaving chat page');
+      
+      // Use a shorter delay to ensure proper cleanup and subscription restoration
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (widget.apiService.socket?.connected == true) {
+          print('Sending subscribeChatList event after leaving chat page');
+          widget.apiService.socket?.emit('subscribeChatList', {
+            'empId': currentUserId
+          });
+          print('✅ Re-subscription to chat list completed');
+        } else {
+          print('❌ Socket not connected, cannot re-subscribe');
+        }
+      });
+    }
+    
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _messageController.dispose();
@@ -1767,8 +1822,15 @@ class _ChatPageState extends State<ChatPage> {
                                 final messageData = messages[index];
                                 final Map<String, dynamic> message =
                                     Map<String, dynamic>.from(messageData);
-                                final Map<String, dynamic> sender =
-                                    Map<String, dynamic>.from(message['sender']);
+                                final Map<String, dynamic> sender = message['sender'] is Map
+                                    ? Map<String, dynamic>.from(message['sender'])
+                                    : {
+                                        'employeeID': 'unknown',
+                                        'fullName': message['sender']?.toString() ?? 'Unknown User',
+                                        'department': '',
+                                        'imgUrl': null,
+                                        'role': 'user',
+                                      };
                                 final messageSenderId = sender['employeeID'];
                                 final isCurrentUser =
                                     currentUserId != null &&
@@ -2186,41 +2248,49 @@ class _ChatPageState extends State<ChatPage> {
                         color: Colors.grey[100],
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: RawKeyboardListener(
-                        focusNode: FocusNode(),
-                        onKey: (RawKeyEvent event) {
-                          if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
-                            if (event.isShiftPressed) {
-                              // Insert new line
-                              final controller = _messageController;
-                              final text = controller.text;
-                              final selection = controller.selection;
-                              final newText = text.replaceRange(selection.start, selection.end, '');
-                              controller.text = newText;
-                              controller.selection = TextSelection.collapsed(offset: selection.start + 1);
-                            } else {
-                              // ส่งข้อความ
-                              _sendMessage();
+                      constraints: const BoxConstraints(
+                        maxHeight: 120, // จำกัดความสูงสูงสุด
+                      ),
+                      child: SingleChildScrollView(
+                        child: RawKeyboardListener(
+                          focusNode: FocusNode(),
+                          onKey: (RawKeyEvent event) {
+                            if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                              if (event.isShiftPressed) {
+                                // Insert new line
+                                final controller = _messageController;
+                                final text = controller.text;
+                                final selection = controller.selection;
+                                final newText = text.replaceRange(selection.start, selection.end, '');
+                                controller.text = newText;
+                                controller.selection = TextSelection.collapsed(offset: selection.start + 1);
+                              } else {
+                                // ส่งข้อความ
+                                _sendMessage();
+                              }
                             }
-                          }
-                        },
-                        child: TextField(
-                          controller: _messageController,
-                          focusNode: _messageFocusNode,
-                          maxLines: null,
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: TextInputAction.newline,
-                          style: const TextStyle(fontSize: 15),
-                          decoration: InputDecoration(
-                            hintText:
-                                _replyingToMessage != null
-                                    ? 'พิมพ์ข้อความตอบกลับ...'
-                                    : 'พิมพ์ข้อความ...',
-                            hintStyle: TextStyle(color: Colors.grey[500]),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 12,
+                          },
+                          child: TextField(
+                            controller: _messageController,
+                            focusNode: _messageFocusNode,
+                            maxLines: null,
+                            minLines: 1,
+                            maxLength: 1000, // จำกัดความยาวข้อความ
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            style: const TextStyle(fontSize: 15),
+                            decoration: InputDecoration(
+                              hintText:
+                                  _replyingToMessage != null
+                                      ? 'พิมพ์ข้อความตอบกลับ...'
+                                      : 'พิมพ์ข้อความ...',
+                              hintStyle: TextStyle(color: Colors.grey[500]),
+                              border: InputBorder.none,
+                              counterText: '', // ซ่อนตัวนับ
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
                             ),
                           ),
                         ),
@@ -2584,6 +2654,25 @@ class _ChatPageState extends State<ChatPage> {
 
       print('Opening URL: $url');
 
+      // ตรวจสอบว่าเป็นไฟล์ PDF หรือไม่
+      final isPdf = url.toLowerCase().contains('.pdf');
+      
+      if (isPdf) {
+        // สำหรับไฟล์ PDF ให้เปิดในเบราว์เซอร์ภายนอก
+        final uri = Uri.parse(url);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('เปิดไฟล์ PDF ในเบราว์เซอร์แล้ว'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return;
+      }
+
       // ถ้าเป็น Windows ให้เปิดในเบราว์เซอร์ภายนอก
       if (Platform.isWindows) {
         final uri = Uri.parse(url);
@@ -2833,6 +2922,10 @@ class _ChatPageState extends State<ChatPage> {
         roomId: widget.roomId,
         message: message,
         employeeId: currentUser,
+        replyToId: _replyingToMessage?['_id'],
+        replyToMessage: _replyingToMessage != null
+            ? _replyingToMessage!['message']?.toString() ?? ''
+            : null,
       );
 
       // Update message in list

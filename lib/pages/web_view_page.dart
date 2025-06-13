@@ -193,6 +193,27 @@ class _WebViewPageState extends State<WebViewPage> {
           onNavigationRequest: (NavigationRequest request) async {
             print('WebView: Navigation requested to: ${request.url}');
             
+            // ตรวจสอบว่าเป็นไฟล์ PDF หรือไม่
+            final isPdf = request.url.toLowerCase().contains('.pdf');
+            if (isPdf) {
+              try {
+                final uri = Uri.parse(request.url);
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('เปิดไฟล์ PDF ในเบราว์เซอร์แล้ว'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+                return NavigationDecision.prevent; // ป้องกันการโหลดใน WebView
+              } catch (e) {
+                print('Error launching PDF in external browser: $e');
+              }
+            }
+            
             // ถ้าเป็น Windows ให้เปิดใน Chrome
             if (Platform.isWindows) {
               try {

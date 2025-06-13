@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSUserNotificationUsageDescription</key>
+	<string>แอปต้องการส่งการแจ้งเตือนเพื่อแจ้งข้อความใหม่</string>
 </dict>
 </plist>

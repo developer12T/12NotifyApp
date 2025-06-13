@@ -1,6 +1,6 @@
 [Setup]
 AppName=12Chat
-AppVersion=1.0.0
+AppVersion=1.0.1
 AppPublisher=12Trading
 AppPublisherURL=https://www.f-plus.co.th/th/index.php
 DefaultDirName={autopf}\12Chat

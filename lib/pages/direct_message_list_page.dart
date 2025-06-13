@@ -11,7 +11,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 class DirectMessageListPage extends StatefulWidget {
   final ApiService apiService;
   final Function(int)? onTotalUnreadCountChanged;
-  final Function(int)? onNewMessageNotification;
+  final Function(String, int)? onNewMessageNotification;
 
   const DirectMessageListPage({
     super.key, 
@@ -68,6 +68,7 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     print('\n=== Setting up Direct Message List Socket Listeners ===');
     print('Socket connected: ${widget.apiService.socket?.connected}');
     print('Socket ID: ${widget.apiService.socket?.id}');
+    print('Current User ID: $currentUserId');
 
     // Remove any existing listeners first
     _removeSocketListeners();
@@ -76,7 +77,12 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     widget.apiService.socket?.on('connect', (_) {
       print('\n=== Direct Message List Socket Connected ===');
       print('Socket ID: ${widget.apiService.socket?.id}');
-      _subscribeToDirectMessageUpdates();
+      print('Current User ID: $currentUserId');
+      
+      // Subscribe immediately when connected
+      if (currentUserId != null) {
+        _subscribeToDirectMessageUpdates();
+      }
     });
 
     widget.apiService.socket?.on('disconnect', (_) {
@@ -123,6 +129,8 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     widget.apiService.socket?.on('updateChatList', (data) {
       print('\n=== รับ Chat List Update จาก Direct Message ===');
       print('ข้อมูลทั้งหมด: $data');
+      print('Current User ID: $currentUserId');
+      print('Mounted: $mounted');
 
       if (!mounted) {
         print('Widget is not mounted, ignoring update');
@@ -188,10 +196,15 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     widget.apiService.socket?.on('newDirectMessageNotification', (data) {
       print('\n=== New Direct Message Notification ===');
       print('Data: $data');
+      print('Current User ID: $currentUserId');
+      print('Mounted: $mounted');
       
       if (data is Map && mounted && currentUserId != null) {
         final recipientId = data['recipientId']?.toString();
         final sender = data['sender'];
+        
+        print('Recipient ID: $recipientId');
+        print('Sender: $sender');
         
         // ตรวจสอบว่าเป็นข้อความสำหรับ current user หรือไม่
         if (recipientId == currentUserId && sender != null) {
@@ -216,7 +229,10 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
 
     // Subscribe if we have user ID and socket is connected
     if (currentUserId != null && widget.apiService.socket?.connected == true) {
+      print('Immediately subscribing to direct message updates');
       _subscribeToDirectMessageUpdates();
+    } else {
+      print('Cannot subscribe immediately: User ID: $currentUserId, Socket connected: ${widget.apiService.socket?.connected}');
     }
   }
 
@@ -242,17 +258,70 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
       print('🆔 Socket ID: ${widget.apiService.socket?.id}');
       print('🔍 Note: This is ONLY subscribing, NOT marking as read');
       
-      // Subscribe to direct message updates for the current user
-      // This will allow us to receive updateChatList events
-      widget.apiService.socket?.emit('subscribeDirectMessages', {
-        'senderId': currentUserId,
-        'recipientId': currentUserId,
-      });
-      print('✅ Subscribe direct message updates request sent');
-      print('🔍 No mark as read operation performed');
+      try {
+        // Subscribe to direct message updates for the current user
+        // This will allow us to receive updateChatList events
+        final subscriptionData = {
+          'senderId': currentUserId,
+          'recipientId': currentUserId,
+        };
+        
+        print('Subscription data: $subscriptionData');
+        
+        // Subscribe to general direct message updates for list page
+        widget.apiService.socket?.emit('subscribeDirectMessages', subscriptionData);
+        
+        // Also subscribe to chat list updates
+        widget.apiService.socket?.emit('subscribeChatList', {
+          'empId': currentUserId
+        });
+        
+        print('✅ Subscribe direct message updates request sent');
+        print('🔍 No mark as read operation performed');
+        
+        // Add a confirmation listener with timeout
+        bool subscriptionConfirmed = false;
+        widget.apiService.socket?.once('directMessagesSubscribed', (data) {
+          print('✅ Direct messages subscription confirmed: $data');
+          subscriptionConfirmed = true;
+        });
+        
+        // Wait for confirmation with timeout
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (!subscriptionConfirmed) {
+            print('⚠️ Direct messages subscription confirmation not received, but continuing...');
+          }
+        });
+        
+      } catch (e) {
+        print('❌ Error subscribing to direct messages: $e');
+        print('Stack trace: ${StackTrace.current}');
+        
+        // Retry subscription after error
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          if (mounted && currentUserId != null) {
+            print('🔄 Retrying subscription after error...');
+            _subscribeToDirectMessageUpdates();
+          }
+        });
+      }
     } else {
       print('❌ Cannot subscribe: User ID: $currentUserId, Socket connected: ${widget.apiService.socket?.connected}');
       print('❌ Socket object: ${widget.apiService.socket}');
+      
+      // Try to reconnect and subscribe again
+      if (widget.apiService.socket != null && !widget.apiService.socket!.connected) {
+        print('🔄 Attempting to reconnect socket...');
+        widget.apiService.socket?.connect();
+        
+        // Wait a bit and try to subscribe again
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          if (mounted && currentUserId != null) {
+            print('🔄 Retrying subscription after reconnection...');
+            _subscribeToDirectMessageUpdates();
+          }
+        });
+      }
     }
   }
 
@@ -303,7 +372,7 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
             updatedConversation['unreadCount'] = (updatedConversation['unreadCount'] ?? 0) + 1;
             
             // Notify about new message
-            widget.onNewMessageNotification?.call(updatedConversation['unreadCount']);
+            widget.onNewMessageNotification?.call('direct', updatedConversation['unreadCount']);
           }
           
           // ย้าย conversation ไปไว้ด้านบน
@@ -431,7 +500,7 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
           updatedConversation['unreadCount'] = (updatedConversation['unreadCount'] ?? 0) + 1;
           
           // Notify about new message
-          widget.onNewMessageNotification?.call(updatedConversation['unreadCount']);
+          widget.onNewMessageNotification?.call('direct', updatedConversation['unreadCount']);
           
           // ย้าย conversation ไปไว้ด้านบน
           conversations.removeAt(existingIndex);
@@ -462,6 +531,9 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
           
           conversations.insert(0, newConversation);
           print('Created new conversation for sender: $senderId');
+          
+          // Notify about new message for new conversation
+          widget.onNewMessageNotification?.call('direct', 1);
         }
       });
       
@@ -489,44 +561,52 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     if (!mounted) return;
 
     // แสดง SnackBar แจ้งเตือน
-    // ScaffoldMessenger.of(context).showSnackBar(
-    //   SnackBar(
-    //     content: Row(
-    //       children: [
-    //         Icon(Icons.message, color: Colors.white, size: 20),
-    //         const SizedBox(width: 8),
-    //         Expanded(
-    //           child: Column(
-    //             crossAxisAlignment: CrossAxisAlignment.start,
-    //             mainAxisSize: MainAxisSize.min,
-    //             children: [
-    //               Text(
-    //                 senderName+'ส่งข้อความใหม่',
-    //                 style: const TextStyle(
-    //                   fontWeight: FontWeight.bold,
-    //                   fontSize: 14,
-    //                 ),
-    //               ),
-    //               Text(
-    //                 message.length > 50 ? '${message.substring(0, 50)}...' : message,
-    //                 style: const TextStyle(fontSize: 12),
-    //                 maxLines: 2,
-    //                 overflow: TextOverflow.ellipsis,
-    //               ),
-    //             ],
-    //           ),
-    //         ),
-    //       ],
-    //     ),
-    //     backgroundColor: Colors.blue[600],
-    //     duration: const Duration(seconds: 3),
-    //     behavior: SnackBarBehavior.floating,
-    //     shape: RoundedRectangleBorder(
-    //       borderRadius: BorderRadius.circular(8),
-    //     ),
-    //     margin: const EdgeInsets.all(8),
-    //   ),
-    // );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.message, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    senderName+'ส่งข้อความใหม่',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  Text(
+                    message.length > 50 ? '${message.substring(0, 50)}...' : message,
+                    style: const TextStyle(fontSize: 12),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.blue[600],
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        margin: const EdgeInsets.all(8),
+      ),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Re-subscribe to direct message updates when page becomes visible
+    print('DirectMessageListPage: didChangeDependencies called');
+    _refreshSocketSubscriptions();
   }
 
   @override
@@ -537,8 +617,57 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
       if (widget.apiService.socket?.connected != true) {
         widget.apiService.socket?.connect();
       }
+      // Refresh subscriptions when app resumes
+      _refreshSocketSubscriptions();
     } else if (state == AppLifecycleState.paused) {
       widget.apiService.socket?.disconnect();
+    }
+  }
+
+  /// Refresh socket subscriptions when returning to the page
+  void _refreshSocketSubscriptions() {
+    if (currentUserId != null && widget.apiService.socket?.connected == true) {
+      print('Refreshing direct message subscriptions');
+      
+      // Reset the setup flag to force re-setup
+      _socketListenersSetup = false;
+      
+      // Remove existing listeners first
+      _removeSocketListeners();
+      
+      // Add a delay to ensure proper cleanup before resubscribing
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          // Re-setup listeners
+          _setupSocketListeners();
+          
+          // Also use the ApiService method as backup
+          widget.apiService.refreshListPageSubscriptions();
+          
+          print('✅ Direct message subscriptions refreshed');
+        }
+      });
+    } else {
+      print('Cannot refresh subscriptions: User ID: $currentUserId, Socket connected: ${widget.apiService.socket?.connected}');
+      
+      // Try to initialize if not ready
+      if (currentUserId == null) {
+        print('User ID is null, trying to load current user...');
+        loadCurrentUser();
+      }
+      
+      if (widget.apiService.socket?.connected != true) {
+        print('Socket not connected, trying to reconnect...');
+        widget.apiService.socket?.connect();
+        
+        // Wait and try to refresh again
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          if (mounted && currentUserId != null) {
+            print('🔄 Retrying subscription after reconnection...');
+            _refreshSocketSubscriptions();
+          }
+        });
+      }
     }
   }
 
@@ -553,7 +682,15 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
       // Ensure socket is initialized before setting up listeners
       await widget.apiService.ensureInitialized();
       
+      // Setup socket listeners and subscribe
       _setupSocketListeners();
+      
+      // Also subscribe immediately if socket is already connected
+      if (currentUserId != null && widget.apiService.socket?.connected == true) {
+        print('Socket already connected, subscribing immediately');
+        _subscribeToDirectMessageUpdates();
+      }
+      
       _loadConversations();
     } else {
       print('fetchCurrentUser: No user data in SharedPreferences');
@@ -662,6 +799,38 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     }
   }
 
+  /// Join a specific direct message room
+  void _joinDirectMessageRoom(String participantId) {
+    if (currentUserId == null || widget.apiService.socket?.connected != true) {
+      print('Cannot join room: User ID or socket not ready');
+      return;
+    }
+
+    try {
+      final conversationId = '${currentUserId}_$participantId';
+      final joinData = {
+        'senderId': currentUserId,
+        'recipientId': participantId,
+        'conversationId': conversationId,
+      };
+
+      print('Joining direct message room: $conversationId');
+      widget.apiService.socket?.emit('joinDirectMessageRoom', joinData);
+
+      // Listen for join confirmation
+      widget.apiService.socket?.once('directMessageRoomJoined', (data) {
+        if (data is Map && data['success'] == true) {
+          print('✅ Successfully joined direct message room: $conversationId');
+        } else {
+          print('❌ Failed to join direct message room: $conversationId');
+        }
+      });
+
+    } catch (e) {
+      print('❌ Error joining direct message room: $e');
+    }
+  }
+
   void _startNewChat() async {
     final result = await Navigator.push(
       context,
@@ -681,7 +850,7 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
         print('\n=== Starting New Chat with User: $recipientId ===');
         
         // Join the direct message room for the new conversation
-        await _joinDirectMessageRoom(recipientId);
+        _joinDirectMessageRoom(recipientId);
       }
       
       _loadConversations(); // Reload conversations after starting new chat
@@ -732,33 +901,6 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
         );
       }
     }
-  }
-
-  /// Join direct message room via socket
-  Future<void> _joinDirectMessageRoom(String recipientId) async {
-    if (currentUserId == null || recipientId.isEmpty) {
-      throw Exception('Current user ID or recipient ID is missing');
-    }
-
-    if (widget.apiService.socket?.connected != true) {
-      throw Exception('Socket is not connected');
-    }
-
-    print('\n=== 🔗 DEBUG: Joining Direct Message Room ===');
-    print('📍 Called from: ${StackTrace.current.toString().split('\n')[1]}');
-    print('⏰ Timestamp: ${DateTime.now().toIso8601String()}');
-    print('👤 Current User ID: $currentUserId');
-    print('📱 Recipient ID: $recipientId');
-    print('🔍 Note: This is ONLY joining room, NOT marking as read');
-
-    // Emit join direct message room event
-    widget.apiService.socket?.emit('joinDirectMessageRoom', {
-      'employeeId': currentUserId,
-      'recipientId': recipientId,
-    });
-
-    print('✅ Join direct message room request sent');
-    print('🔍 No mark as read operation performed');
   }
 
   @override

@@ -2,9 +2,9 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "My Programmsi"
-#define MyAppVersion "1.5"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "My Company, Inc."
-#define MyAppURL "https://www.example.com/"
+#define MyAppURL "https://onetwotrading.co.th/"
 #define MyAppExeName "MyProg-x64.exe"
 #define MyAppAssocName MyAppName + " File"
 #define MyAppAssocExt ".myp"

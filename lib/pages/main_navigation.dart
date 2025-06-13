@@ -10,6 +10,10 @@ import 'profile_page.dart';
 import '../services/api_service.dart';
 import '../components/side_navigation.dart';
 import '../services/notification_service.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'test_notification_page.dart';
+import 'test_case_page.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({Key? key}) : super(key: key);
@@ -45,21 +49,15 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     // _loadVersion();  // Commented out as we use hardcoded version
     
     // Initialize notification service
-    NotificationService().init(
-      onNotificationTap: (payload) {
-        // Navigate to appropriate page based on notification type
-        final type = payload['type'] as String?;
-        if (type == 'room') {
-          setState(() {
-            _selectedIndex = 1; // Navigate to groups page
-          });
-        } else if (type == 'direct') {
-          setState(() {
-            _selectedIndex = 2; // Navigate to chat page
-          });
-        }
-      },
-    );
+    _initializeNotificationService();
+    
+    // Check notification permissions
+    _checkNotificationPermissions();
+    
+    // Test notification after 3 seconds
+    Future.delayed(const Duration(seconds: 3), () {
+      _testNotification();
+    });
   }
 
   Future<void> _loadUserData() async {
@@ -96,14 +94,31 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
   }
 
   void _onItemTapped(int index) {
-    if (_selectedIndex != index) {
-      setState(() {
-        _selectedIndex = index;
-      });
-      
-      // Force rebuild the selected page by recreating its key
-      _pageKeys[index] = GlobalKey<State<StatefulWidget>>();
+    setState(() {
+      _selectedIndex = index;
+    });
+    
+    // Refresh socket subscriptions when switching to chat-related pages
+    if (index == 1 || index == 2) {
+      print('Switching to chat page (index: $index), refreshing subscriptions...');
+      _refreshChatPageSubscriptions();
+    } else if (index == 0) {
+      // When switching to announcements page, also refresh subscriptions
+      print('Switching to announcements page, refreshing subscriptions...');
+      _refreshSocketSubscriptions();
     }
+  }
+
+  /// Refresh socket subscriptions for chat pages
+  void _refreshChatPageSubscriptions() {
+    // This will trigger didChangeDependencies in the respective pages
+    // which will refresh their socket subscriptions
+    print('Switching to chat page, subscriptions will be refreshed');
+    
+    // Also refresh immediately for better reliability
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _refreshSocketSubscriptions();
+    });
   }
 
   Future<void> _logout() async {
@@ -197,10 +212,19 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
 
   // Method to update rooms unread count
   void updateRoomsUnreadCount(int count) {
+    print('=== updateRoomsUnreadCount called ===');
+    print('New count: $count');
+    print('Previous _roomsUnreadCount: $_roomsUnreadCount');
+    print('Previous _totalUnreadCount: $_totalUnreadCount');
+    
     setState(() {
       _roomsUnreadCount = count;
       _totalUnreadCount = _directMessagesUnreadCount + _roomsUnreadCount;
     });
+    
+    print('Updated _roomsUnreadCount: $_roomsUnreadCount');
+    print('Updated _totalUnreadCount: $_totalUnreadCount');
+    print('Updated _directMessagesUnreadCount: $_directMessagesUnreadCount');
   }
 
   // Method to get total unread count
@@ -214,24 +238,47 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
 
   // Method to handle new message notifications
   void handleNewMessageNotification(String type, int unreadCount) {
-    // Show notification if user is not in chat-related pages OR if app is not in foreground
-    if ((!isInChatPage && unreadCount > 0) || !isAppInForeground) {
+    print('=== handleNewMessageNotification called ===');
+    print('Type: $type');
+    print('Unread count: $unreadCount');
+    print('App in foreground: $isAppInForeground');
+    print('Current selected index: $_selectedIndex');
+    print('Is in chat page: $isInChatPage');
+    
+    // Show notification if there are unread messages OR if app is not in foreground
+    if (unreadCount > 0 || !isAppInForeground) {
       final now = DateTime.now();
       
       // Prevent duplicate notifications within 5 seconds
       if (_lastNotificationTime != null && 
           _lastNotificationType == type &&
           now.difference(_lastNotificationTime!).inSeconds < 5) {
+        print('Skipping duplicate notification');
         return;
       }
       
+      print('Showing notification...');
+      _showMessageNotification(type, unreadCount);
+      
+      // Update last notification info
+      _lastNotificationTime = now;
+      _lastNotificationType = type;
+      print('Notification shown successfully');
+    } else {
+      print('Skipping notification: unreadCount=$unreadCount, isAppInForeground=$isAppInForeground');
+    }
+  }
+
+  // Show message notification
+  Future<void> _showMessageNotification(String type, int unreadCount) async {
+    try {
       final notificationService = NotificationService();
       final title = type == 'room' ? 'ข้อความใหม่ในกลุ่ม' : 'ข้อความใหม่';
       final body = type == 'room' 
           ? 'คุณมีข้อความใหม่ในกลุ่ม $unreadCount ข้อความ'
           : 'คุณมีข้อความใหม่ $unreadCount ข้อความ';
       
-      notificationService.showNotification(
+      await notificationService.showNotification(
         title: title,
         body: body,
         payload: jsonEncode({
@@ -239,10 +286,9 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
           'unreadCount': unreadCount,
         }),
       );
-      
-      // Update last notification info
-      _lastNotificationTime = now;
-      _lastNotificationType = type;
+      print('Message notification sent successfully');
+    } catch (e) {
+      print('Error sending message notification: $e');
     }
   }
 
@@ -263,6 +309,8 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
         case AppLifecycleState.resumed:
           _isAppInForeground = true;
           print('MainNavigation: App resumed - in foreground');
+          // Refresh socket subscriptions when app resumes
+          _refreshSocketSubscriptions();
           break;
         case AppLifecycleState.paused:
         case AppLifecycleState.inactive:
@@ -275,8 +323,82 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     });
   }
 
+  /// Refresh socket subscriptions for all pages
+  void _refreshSocketSubscriptions() {
+    print('Refreshing socket subscriptions for all pages');
+    _apiService.refreshListPageSubscriptions();
+  }
+
   // Method to check if app is in foreground
   bool get isAppInForeground => _isAppInForeground;
+
+  // Check notification permissions
+  Future<void> _checkNotificationPermissions() async {
+    print('Checking notification permissions...');
+    
+    final androidPlugin = FlutterLocalNotificationsPlugin()
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin != null) {
+      final granted = await androidPlugin.requestNotificationsPermission();
+      print('Android notification permission granted: $granted');
+    }
+
+    final iOSPlugin = FlutterLocalNotificationsPlugin()
+        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+    if (iOSPlugin != null) {
+      final granted = await iOSPlugin.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      print('iOS notification permission granted: $granted');
+    }
+  }
+
+  // Initialize notification service
+  Future<void> _initializeNotificationService() async {
+    print('MainNavigation: Initializing notification service...');
+    try {
+      await NotificationService().init(
+        onNotificationTap: (payload) {
+          print('MainNavigation: Notification tapped with payload: $payload');
+          // Navigate to appropriate page based on notification type
+          final type = payload['type'] as String?;
+          if (type == 'room') {
+            setState(() {
+              _selectedIndex = 1; // Navigate to groups page
+            });
+          } else if (type == 'direct') {
+            setState(() {
+              _selectedIndex = 2; // Navigate to chat page
+            });
+          }
+        },
+      );
+      print('MainNavigation: Notification service initialized successfully');
+    } catch (e) {
+      print('MainNavigation: Error initializing notification service: $e');
+    }
+  }
+
+  // Test notification
+  Future<void> _testNotification() async {
+    print('MainNavigation: Testing notification...');
+    try {
+      final notificationService = NotificationService();
+      // await notificationService.showNotification(
+      //   title: 'ทดสอบการแจ้งเตือน',
+      //   body: 'นี่คือการทดสอบการแจ้งเตือน',
+      //   payload: jsonEncode({
+      //     'type': 'test',
+      //     'message': 'Test notification',
+      //   }),
+      // );
+      print('MainNavigation: Test notification sent successfully');
+    } catch (e) {
+      print('MainNavigation: Error sending test notification: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -322,8 +444,93 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
             ),
             actions: [
               IconButton(
-                icon: Icon(Icons.logout, color: _selectedIndex == 3 ? Colors.white : Colors.black),
-                onPressed: _logout,
+                icon: Icon(
+                  Icons.notifications,
+                  color: _selectedIndex == 3 ? Colors.white : Colors.black,
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TestNotificationPage(
+                        apiService: _apiService,
+                      ),
+                    ),
+                  );
+                },
+                tooltip: 'ทดสอบการแจ้งเตือน',
+              ),
+              IconButton(
+                icon: Icon(
+                  Icons.settings_system_daydream,
+                  color: _selectedIndex == 3 ? Colors.white : Colors.black,
+                ),
+                onPressed: () async {
+                  // ทดสอบ background notification
+                  print('=== Testing Background Notification ===');
+                  try {
+                    final service = FlutterBackgroundService();
+                    final isRunning = await service.isRunning();
+                    print('Background service is running: $isRunning');
+                    
+                    if (isRunning) {
+                      service.invoke('showNotification', {
+                        'title': 'ทดสอบจากแอปหลัก',
+                        'body': 'นี่คือการทดสอบการแจ้งเตือนจาก background service',
+                        'timestamp': DateTime.now().toIso8601String(),
+                      });
+                      print('Background notification test sent');
+                      
+                      // แสดง snackbar
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('ส่งคำสั่งทดสอบ background notification แล้ว'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } else {
+                      print('Background service is not running');
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Background service ไม่ได้ทำงาน'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  } catch (e) {
+                    print('Error testing background notification: $e');
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('เกิดข้อผิดพลาด: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
+                tooltip: 'ทดสอบ Background Notification',
+              ),
+              IconButton(
+                icon: Icon(
+                  Icons.checklist,
+                  color: _selectedIndex == 3 ? Colors.white : Colors.black,
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TestCasePage(
+                        apiService: _apiService,
+                      ),
+                    ),
+                  );
+                },
+                tooltip: 'Test Cases',
               ),
             ],
           ),
@@ -363,7 +570,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
                   key: _pageKeys[2],
                   apiService: _apiService,
                   onTotalUnreadCountChanged: updateDirectMessagesUnreadCount,
-                  onNewMessageNotification: (count) => handleNewMessageNotification('direct', count),
+                  onNewMessageNotification: (type, count) => handleNewMessageNotification(type, count),
                 ),
                 ProfilePage(key: _pageKeys[3]),
               ],

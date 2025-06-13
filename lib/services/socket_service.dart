@@ -1,232 +1,86 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../services/api_service.dart';
 import 'noti_service.dart';
+import 'unified_socket_service.dart';
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
-  late IO.Socket socket;
   final NotiService _notiService = NotiService();
+  final UnifiedSocketService _unifiedSocketService = UnifiedSocketService();
+  bool _isAnnouncementSubscribed = false; // Track announcement subscription
+  bool _isSocketSetup = false;
 
   factory SocketService() {
     return _instance;
   }
 
   SocketService._internal() {
-    print('SocketService: Initializing socket with URL: ${ApiService.baseUrl}');
-    socket = IO.io('https://apps.onetwotrading.co.th/', <String, dynamic>{
-      'transports': ['websocket'],
-      'path': '/chatio/socket.io/',
-      'reconnection': true,
-      'forceNew': true
-    });
-
-    print('SocketService: Socket instance created with options:');
-    print('- URL: ${ApiService.baseUrl}');
-    print('- Path: /socket.io');
-    print('- Transport: websocket');
-    print('- Reconnection: true');
-
-    // Add explicit connect call
-    print('SocketService: Attempting to connect socket...');
-    socket?.connect();
-    print('SocketService: Socket connect() called');
-
-    // Setup socket event listeners
-    socket?.onConnect((_) {
-      print('=== SocketService: Socket Connected Successfully ===');
-      print('Socket ID: ${socket?.id}');
-      print('Socket connected: ${socket?.connected}');
-      print('Socket auth: ${socket?.auth}');
-      print('Socket nsp: ${socket?.nsp}');
-
-      // Setup message listeners after connection
-      _setupMessageListeners();
-    });
-
-    socket?.onConnectError((error) {
-      print('=== SocketService: Socket Connect Error ===');
-      print('Error: $error');
-      print('Socket nsp: ${socket?.nsp}');
-      print('Socket connected: ${socket?.connected}');
-      print('Socket ID: ${socket?.id}');
-      print('Base URL: ${ApiService.baseUrl}');
-    });
-
-    socket?.onDisconnect((_) {
-      print('=== SocketService: Socket Disconnected ===');
-      print('Socket ID: ${socket?.id}');
-      print('Socket connected: ${socket?.connected}');
-    });
-
-    socket?.onError((error) {
-      print('=== SocketService: Socket Error ===');
-      print('Error: $error');
-      print('Socket ID: ${socket?.id}');
-      print('Socket connected: ${socket?.connected}');
-    });
+    print('SocketService: Initializing with UnifiedSocketService');
+    _initialize();
   }
 
-  void _setupMessageListeners() {
-    print('=== SocketService: Setting up Message Listeners ===');
-    
-    // Remove existing listeners first
-    socket?.off('newMessage');
-    socket?.off('messageBroadcast');
-    socket?.off('messageSent');
-    socket?.off('messageReceived');
-    socket?.off('roomJoined');
-    socket?.off('roomLeft');
-    socket?.off('unreadCountUpdate');
-
-    // Listen for message broadcasts (main event from server)
-    socket?.on('messageBroadcast', (data) {
-      print('=== SocketService: Message Broadcast Received ===');
-      print('Raw data: $data');
+  Future<void> _initialize() async {
+    try {
+      // เริ่มต้น UnifiedSocketService
+      await _unifiedSocketService.initialize();
       
-      try {
-        // Handle case where data is a list
-        dynamic messageData;
-        if (data is List) {
-          print('Data is a List, length: ${data.length}');
-          if (data.isEmpty) {
-            print('Empty data list received');
-            return;
+      // ตั้งค่า announcement listener
+      _unifiedSocketService.onAnnouncement((data) {
+        print('=== SocketService: New Announcement Received ===');
+        print('Data: $data');
+        
+        // จัดการการแจ้งเตือนประกาศ
+        _handleAnnouncementNotification(data);
+      });
+      
+      print('SocketService: Initialization complete');
+    } catch (e) {
+      print('SocketService: Initialization error: $e');
+      rethrow;
+    }
+  }
+
+  /// ดึง Socket instance
+  IO.Socket get socket => _unifiedSocketService.socket;
+
+  /// ตรวจสอบสถานะการเชื่อมต่อ
+  bool get isConnected => _unifiedSocketService.isConnected;
+
+  /// ดึง Socket ID
+  String? get socketId => _unifiedSocketService.socketId;
+
+  /// จัดการการแจ้งเตือนประกาศ
+  void _handleAnnouncementNotification(dynamic data) {
+    try {
+      dynamic announcementData;
+      
+      if (data is List && data.isNotEmpty) {
+        // If data is a list, get the first item
+        final firstItem = data[0];
+        if (firstItem is Map<String, dynamic>) {
+          if (firstItem['data'] != null) {
+            // If data is nested under 'data' key
+            announcementData = firstItem['data'];
+          } else {
+            // If data is directly available
+            announcementData = firstItem;
           }
-          messageData = data[0];
-        } else if (data is Map) {
-          messageData = data;
         } else {
-          print('Invalid message data format: ${data.runtimeType}');
+          print('Invalid announcement data structure in list: ${data.runtimeType}');
           return;
         }
-
-        print('Processed message data:');
-        print('- Room ID: ${messageData['room']}');
-        print('- Message: ${messageData['message']}');
-        print('- Sender: ${messageData['sender']}');
-        print('- Timestamp: ${messageData['timestamp']}');
-        print('- Is Read: ${messageData['isRead']}');
-        print('- Is Reply: ${messageData['isReply']}');
-        print('- Reply To: ${messageData['replyTo']}');
-        print('- Reply Message: ${messageData['replyToMessage']}');
-
-        // Emit local event for UI update
-        socket?.emit('messageReceived', messageData);
-      } catch (e) {
-        print('Error processing broadcast message: $e');
-        print('Stack trace: ${StackTrace.current}');
-      }
-    });
-
-    // Listen for message sent confirmations
-    socket?.on('messageSent', (data) {
-      print('=== SocketService: Message Sent Confirmation ===');
-      print('Data: $data');
-    });
-
-    // Listen for room events
-    socket?.on('roomJoined', (data) {
-      print('=== SocketService: Room Joined ===');
-      print('Data: $data');
-      
-      // Subscribe to room messages after joining
-      if (data is Map && data['roomId'] != null) {
-        print('Subscribing to room messages: ${data['roomId']}');
-        socket?.emit('subscribeRoom', {'roomId': data['roomId']});
-      }
-    });
-
-    socket?.on('roomLeft', (data) {
-      print('=== SocketService: Room Left ===');
-      print('Data: $data');
-      
-      // Unsubscribe from room messages after leaving
-      if (data is Map && data['roomId'] != null) {
-        print('Unsubscribing from room messages: ${data['roomId']}');
-        socket?.emit('unsubscribeRoom', {'roomId': data['roomId']});
-      }
-    });
-
-    // Listen for unread count updates
-    socket?.on('unreadCountUpdate', (data) {
-      print('=== SocketService: Unread Count Update ===');
-      print('Data: $data');
-    });
-
-    // Listen for announcements events
-    socket?.on('newAnnouncement', (data) {
-      print('=== SocketService: New Announcement Received ===');
-      print('Data: $data');
-    });
-
-    // Subscribe to announcements when connected
-    socket?.emit('subscribeAnnouncements', {});
-
-    print('=== SocketService: Message Listeners Setup Complete ===');
-  }
-
-  // Add method to manually setup listeners
-  void setupMessageListeners() {
-    print('SocketService: Manually setting up message listeners');
-    _setupMessageListeners();
-  }
-
-  // Add method to emit test message
-  void sendTestMessage(String roomId, String message) {
-    print('=== SocketService: Sending Test Message ===');
-    print('Room ID: $roomId');
-    print('Message: $message');
-    print('Socket ID: ${socket?.id}');
-    print('Socket connected: ${socket?.connected}');
-
-    if (socket?.connected == true) {
-      socket?.emit('sendMessage', {
-        'roomId': roomId,
-        'message': message,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-      print('Test message sent');
-    } else {
-      print('Cannot send test message: Socket not connected');
-    }
-  }
-
-  Future<void> connect() async {
-    print('SocketService: Attempting to connect socket...');
-    print('SocketService: API_BASE_URL: ${ApiService.baseUrl}');
-    try {
-      socket.connect();
-      print('SocketService: Socket connect() called successfully');
-    } catch (e) {
-      print('SocketService: Error connecting socket: $e');
-    }
-  }
-
-  void disconnect() {
-    print('Disconnecting socket...');
-    socket.disconnect();
-  }
-
-  void onNewAnnouncement(Function(dynamic) callback, {bool Function()? isInAnnouncementsPage, bool Function()? isAppInForeground}) {
-    print('Setting up newAnnouncement listener');
-    
-    // Subscribe to announcements if socket is connected
-    if (socket.connected) {
-      socket.emit('subscribeAnnouncements', {});
-      print('Subscribed to announcements');
-    }
-    
-    socket.on('newAnnouncement', (data) {
-      print('Received new announcement: $data');
-      
-      // Extract the announcement data from the response
-      dynamic announcementData;
-      if (data is List && data.isNotEmpty) {
-        announcementData = data[0];
-      } else if (data is Map) {
-        announcementData = data;
+      } else if (data is Map<String, dynamic>) {
+        if (data['data'] != null) {
+          // If data is nested under 'data' key
+          announcementData = data['data'];
+        } else {
+          // If data is directly available
+          announcementData = data;
+        }
       } else {
         print('Invalid announcement data format: ${data.runtimeType}');
         return;
@@ -234,17 +88,15 @@ class SocketService {
       
       // Handle different data structures
       Map<String, dynamic> formattedData;
-      if (announcementData['data'] != null) {
-        // If data is nested under 'data' key
+      if (announcementData['createdByUser'] != null) {
         formattedData = {
-          ...announcementData['data'],
+          ...announcementData,
           'createdBy': {
-            'fullNameThai': announcementData['data']['createdBy']?.toString() ?? 'Unknown',
-            'department': announcementData['data']['department']?.toString(),
+            'fullNameThai': announcementData['createdByUser']['fullNameThai'] ?? 'Unknown',
+            'department': announcementData['createdByUser']['department']?.toString(),
           }
         };
       } else {
-        // If data is directly available
         formattedData = {
           ...announcementData,
           'createdBy': {
@@ -254,89 +106,197 @@ class SocketService {
         };
       }
       
-      // Show notification for new announcement if:
-      // 1. User is not in announcements page, OR
-      // 2. App is not in foreground
-      final isInAnnouncements = isInAnnouncementsPage?.call() ?? false;
-      final isInForeground = isAppInForeground?.call() ?? true;
-      print('SocketService: isInAnnouncementsPage check: $isInAnnouncements');
-      print('SocketService: isAppInForeground check: $isInForeground');
+      print('=== SocketService: Showing notification ===');
+      print('Title: ${formattedData['title']}');
+      print('Content: ${formattedData['content']}');
       
-      if (!isInAnnouncements || !isInForeground) {
-        print('SocketService: Showing notification for new announcement');
+      // ตรวจสอบว่าเป็น background service หรือไม่
+      bool isInBackgroundService = _isInBackgroundService();
+      print('=== SocketService: Is in background service: $isInBackgroundService ===');
+      
+      if (isInBackgroundService) {
+        // ถ้าเป็น background service ให้ใช้ background notification service
+        print('=== SocketService: Using background notification service ===');
+        _showBackgroundNotification(formattedData);
+      } else {
+        // ถ้าไม่ใช่ background service ให้ใช้ NotiService ปกติ
+        print('=== SocketService: Using normal NotiService ===');
         _notiService.showNotification(
           title: 'ประกาศใหม่: ${formattedData['title']}',
           body: formattedData['content'],
           payload: json.encode(formattedData),
         );
-      } else {
-        print('User is in announcements page and app is in foreground, skipping notification');
+      }
+    } catch (e) {
+      print('Error handling announcement notification: $e');
+      print('Error details: ${e.toString()}');
+    }
+  }
+
+  /// ตรวจสอบว่าเป็น background service หรือไม่
+  bool _isInBackgroundService() {
+    try {
+      final stackTrace = StackTrace.current.toString();
+      return stackTrace.contains('flutter_background_service') || 
+             stackTrace.contains('BackgroundService') ||
+             stackTrace.contains('onStart') ||
+             stackTrace.contains('_showBackgroundNotification');
+    } catch (e) {
+      print('Error checking background service: $e');
+      return false;
+    }
+  }
+
+  /// แสดง notification ใน background service
+  void _showBackgroundNotification(Map<String, dynamic> data) {
+    try {
+      print('=== SocketService: Showing background notification ===');
+      
+      // ใน background service เราไม่สามารถใช้ FlutterBackgroundService.invoke() ได้
+      // ให้ใช้วิธีอื่นแทน เช่น การแสดง notification โดยตรงผ่าน NotiService
+      // แต่ใช้ method ที่ไม่ต้อง initialize ใหม่
+      
+      try {
+        // ลองใช้ showNotificationWithoutInit ก่อน
+        _notiService.showNotificationWithoutInit(
+          title: 'ประกาศใหม่: ${data['title']}',
+          body: data['content'],
+          payload: json.encode(data),
+        );
+        print('=== SocketService: Background notification shown with showNotificationWithoutInit ===');
+      } catch (e) {
+        print('=== SocketService: showNotificationWithoutInit failed, trying fallback ===');
+        print('Error: $e');
+        
+        // ถ้าไม่สำเร็จ ให้ใช้วิธี fallback
+        _showFallbackNotification(data);
       }
       
-      // Call the callback with the formatted announcement data
-      callback(formattedData);
-    });
+    } catch (e) {
+      print('=== SocketService: Error showing background notification ===');
+      print('Error: $e');
+    }
   }
 
-  void offNewAnnouncement() {
-    print('Removing newAnnouncement listener');
-    socket.off('newAnnouncement');
+  /// Fallback notification method สำหรับ background service
+  void _showFallbackNotification(Map<String, dynamic> data) {
+    try {
+      print('=== SocketService: Using fallback notification method ===');
+      
+      // ใช้ FlutterLocalNotificationsPlugin โดยตรง
+      final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+      
+      const notificationDetails = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'socket_service_channel',
+          '12Chat Background Service',
+          channelDescription: 'ช่องทางการแจ้งเตือนสำหรับ Background Service',
+          importance: Importance.high,
+          priority: Priority.high,
+          showWhen: true,
+          enableVibration: true,
+          playSound: true,
+        ),
+      );
+
+      final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      
+      flutterLocalNotificationsPlugin.show(
+        id,
+        'ประกาศใหม่: ${data['title']}',
+        data['content'],
+        notificationDetails,
+        payload: json.encode(data),
+      );
+      
+      print('=== SocketService: Fallback notification shown successfully ===');
+      
+    } catch (e) {
+      print('=== SocketService: Fallback notification failed ===');
+      print('Error: $e');
+    }
   }
 
-  // Add method to subscribe to room messages
+  /// Subscribe ไปยังห้องแชท
   void subscribeToRoom(String roomId) {
     print('=== SocketService: Subscribing to Room ===');
     print('Room ID: $roomId');
-    print('Socket ID: ${socket?.id}');
-    print('Socket connected: ${socket?.connected}');
-
-    if (socket?.connected == true) {
-      socket?.emit('subscribeRoom', {'roomId': roomId});
-      print('Subscribe request sent for room: $roomId');
-    } else {
-      print('Cannot subscribe: Socket not connected');
-    }
+    _unifiedSocketService.subscribeToRoom(roomId);
   }
 
-  // Add method to unsubscribe from room messages
+  /// Unsubscribe จากห้องแชท
   void unsubscribeFromRoom(String roomId) {
     print('=== SocketService: Unsubscribing from Room ===');
     print('Room ID: $roomId');
-    print('Socket ID: ${socket?.id}');
-    print('Socket connected: ${socket?.connected}');
-
-    if (socket?.connected == true) {
-      socket?.emit('unsubscribeRoom', {'roomId': roomId});
-      print('Unsubscribe request sent for room: $roomId');
-    } else {
-      print('Cannot unsubscribe: Socket not connected');
-    }
+    _unifiedSocketService.unsubscribeFromRoom(roomId);
   }
 
-  // Add method to test announcements subscription
-  void testAnnouncementsSubscription() {
-    print('=== SocketService: Testing Announcements Subscription ===');
-    print('Socket connected: ${socket.connected}');
-    print('Socket ID: ${socket.id}');
+  /// Subscribe ไปยังแชทส่วนตัว
+  void subscribeToDirectMessages(String senderId, String recipientId) {
+    print('=== SocketService: Subscribing to Direct Messages ===');
+    print('Sender ID: $senderId');
+    print('Recipient ID: $recipientId');
+    _unifiedSocketService.subscribeToDirectMessages(senderId, recipientId);
+  }
+
+  /// Unsubscribe จากแชทส่วนตัว
+  void unsubscribeFromDirectMessages(String senderId, String recipientId) {
+    print('=== SocketService: Unsubscribing from Direct Messages ===');
+    print('Sender ID: $senderId');
+    print('Recipient ID: $recipientId');
+    _unifiedSocketService.unsubscribeFromDirectMessages(senderId, recipientId);
+  }
+
+  /// Subscribe ไปยังประกาศ
+  void subscribeToAnnouncements() {
+    print('=== SocketService: Subscribing to Announcements ===');
+    _unifiedSocketService.subscribeToAnnouncements();
+  }
+
+  /// เพิ่ม listener สำหรับข้อความ
+  void onMessage(String event, Function(dynamic) callback) {
+    _unifiedSocketService.onMessage(event, callback);
+  }
+
+  /// เพิ่ม listener สำหรับการเชื่อมต่อ
+  void onConnection(String event, Function(dynamic) callback) {
+    _unifiedSocketService.onConnection(event, callback);
+  }
+
+  /// ลบ listener
+  void offMessage(String event, Function(dynamic)? callback) {
+    _unifiedSocketService.offMessage(event, callback);
+  }
+
+  void offConnection(String event, Function(dynamic)? callback) {
+    _unifiedSocketService.offConnection(event, callback);
+  }
+
+  /// ส่งข้อความทดสอบ
+  void sendTestMessage(String roomId, String message) {
+    print('=== SocketService: Sending Test Message ===');
+    print('Room ID: $roomId');
+    print('Message: $message');
     
-    if (socket.connected) {
-      socket.emit('subscribeAnnouncements', {});
-      print('Test subscription request sent for announcements');
+    if (_unifiedSocketService.isConnected) {
+      _unifiedSocketService.sendMessage(
+        roomId: roomId,
+        message: message,
+      );
+      print('Test message sent');
     } else {
-      print('Cannot test subscription: Socket not connected');
+      print('Cannot send test message: Socket not connected');
     }
   }
 
-  // Add method to emit test announcement
+  /// ส่งประกาศทดสอบ
   void sendTestAnnouncement(String title, String content) {
     print('=== SocketService: Sending Test Announcement ===');
     print('Title: $title');
     print('Content: $content');
-    print('Socket ID: ${socket.id}');
-    print('Socket connected: ${socket.connected}');
-
-    if (socket.connected) {
-      socket.emit('testAnnouncement', {
+    
+    if (_unifiedSocketService.isConnected) {
+      _unifiedSocketService.socket.emit('testAnnouncement', {
         'title': title,
         'content': content,
         'timestamp': DateTime.now().toIso8601String(),
@@ -347,37 +307,123 @@ class SocketService {
     }
   }
 
-  // Add method to test notification service
-  // void testNotificationService() {
-  //   print('=== SocketService: Testing Notification Service ===');
-  //   try {
-  //     _notiService.showNotification(
-  //       title: 'ทดสอบการแจ้งเตือน',
-  //       body: 'นี่คือการทดสอบการแจ้งเตือนจาก SocketService',
-  //       payload: json.encode({'type': 'test', 'message': 'test notification'}),
-  //     );
-  //     print('SocketService: Test notification sent successfully');
-  //   } catch (e) {
-  //     print('SocketService: Error sending test notification: $e');
-  //   }
-  // }
+  /// อัปเดต User ID
+  void updateUserId(String? userId) {
+    _unifiedSocketService.updateUserId(userId);
+  }
 
-  // Add method to test background notification
-  // void testBackgroundNotification() {
-  //   print('=== SocketService: Testing Background Notification ===');
-  //   try {
-  //     _notiService.showNotification(
-  //       title: 'ประกาศใหม่ (ทดสอบ Background)',
-  //       body: 'นี่คือการทดสอบการแจ้งเตือนเมื่อแอปอยู่ใน background',
-  //       payload: json.encode({
-  //         'type': 'announcement',
-  //         'title': 'ประกาศใหม่ (ทดสอบ Background)',
-  //         'content': 'นี่คือการทดสอบการแจ้งเตือนเมื่อแอปอยู่ใน background'
-  //       }),
-  //     );
-  //     print('SocketService: Background test notification sent successfully');
-  //   } catch (e) {
-  //     print('SocketService: Error sending background test notification: $e');
-  //   }
-  // }
+  /// Cleanup resources
+  void dispose() {
+    print('=== SocketService: Disposing ===');
+    
+    // ตรวจสอบว่าเป็น background service หรือไม่
+    // ถ้าเป็น background service ไม่ต้อง dispose socket
+    try {
+      // ตรวจสอบว่าเป็น background service โดยดูจาก stack trace
+      final stackTrace = StackTrace.current.toString();
+      if (stackTrace.contains('flutter_background_service') || 
+          stackTrace.contains('BackgroundService')) {
+        print('=== SocketService: Background service detected, skipping dispose ===');
+        return;
+      }
+    } catch (e) {
+      print('Error checking background service: $e');
+    }
+    
+    // ถ้าไม่ใช่ background service ให้ dispose ปกติ
+    _unifiedSocketService.dispose();
+  }
+
+  /// ตรวจสอบสถานะการ initialize
+  bool get isInitialized => _unifiedSocketService.isInitialized;
+
+  /// ดึงรายการห้องที่ subscribe อยู่
+  Set<String> get subscribedRooms => _unifiedSocketService.subscribedRooms;
+
+  /// ดึงรายการแชทส่วนตัวที่ subscribe อยู่
+  Set<String> get subscribedDirectMessages => _unifiedSocketService.subscribedDirectMessages;
+
+  /// Connect socket (for backward compatibility)
+  Future<void> connect() async {
+    if (!_unifiedSocketService.isInitialized) {
+      await _unifiedSocketService.initialize();
+    }
+  }
+
+  /// Disconnect socket (for backward compatibility)
+  void disconnect() {
+    print('=== SocketService: Disconnect called ===');
+    // ไม่ต้องทำอะไร เพราะ UnifiedSocketService จัดการเอง
+    print('SocketService: Disconnect completed');
+  }
+
+  /// onNewAnnouncement (for backward compatibility)
+  void onNewAnnouncement(
+    Function(dynamic) callback, {
+    bool Function()? isInAnnouncementsPage,
+    bool Function()? isAppInForeground,
+  }) {
+    print('=== SocketService: onNewAnnouncement called ===');
+    
+    // Check if already subscribed
+    if (_isAnnouncementSubscribed) {
+      print('=== SocketService: Already subscribed to announcements, skipping... ===');
+      return;
+    }
+    
+    // Subscribe to announcements
+    _unifiedSocketService.subscribeToAnnouncements();
+    _isAnnouncementSubscribed = true;
+    
+    // ตั้งค่า listener พร้อมเงื่อนไขการแจ้งเตือน
+    _unifiedSocketService.onAnnouncement((data) {
+      print('=== SocketService: Announcement received ===');
+      print('Data: $data');
+      
+      // ตรวจสอบเงื่อนไขการแสดงการแจ้งเตือน
+      final isInAnnouncements = isInAnnouncementsPage?.call() ?? false;
+      final isInForeground = isAppInForeground?.call() ?? true;
+      
+      print('=== SocketService: Notification conditions ===');
+      print('Is in announcements page: $isInAnnouncements');
+      print('Is app in foreground: $isInForeground');
+      
+      // แสดงการแจ้งเตือนเสมอ ไม่ว่าจะอยู่หน้าไหนหรือแอปอยู่ในสถานะใด
+      print('=== SocketService: Showing notification (ALWAYS) ===');
+      _handleAnnouncementNotification(data);
+      
+      // เรียก callback เพื่ออัปเดต UI
+      callback(data);
+    });
+  }
+
+  /// offNewAnnouncement (for backward compatibility)
+  void offNewAnnouncement() {
+    print('=== SocketService: offNewAnnouncement called ===');
+    _unifiedSocketService.offAnnouncement();
+    _isAnnouncementSubscribed = false;
+  }
+
+  /// Test announcement notification (for debugging)
+  Future<void> testAnnouncementNotification() async {
+    print('=== SocketService: Testing announcement notification ===');
+    
+    final testData = {
+      'id': 'test_${DateTime.now().millisecondsSinceEpoch}',
+      'title': 'ประกาศทดสอบจาก SocketService',
+      'content': 'นี่คือการทดสอบการแจ้งเตือนประกาศจาก SocketService',
+      'createdAt': DateTime.now().toIso8601String(),
+      'createdBy': {
+        'fullNameThai': 'ผู้ทดสอบระบบ',
+        'department': 'IT',
+      },
+    };
+    
+    try {
+      _handleAnnouncementNotification(testData);
+      print('=== SocketService: Test announcement notification sent successfully ===');
+    } catch (e) {
+      print('=== SocketService: Error sending test announcement notification: $e ===');
+    }
+  }
 } 

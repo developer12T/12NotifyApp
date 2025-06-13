@@ -112,10 +112,12 @@ class NotiService {
     required String body,
     String? payload,
   }) async {
-    print('NotiService: Attempting to show notification: $title');
+    print('=== NotiService: Attempting to show notification ===');
+    print('NotiService: Title: $title');
     print('NotiService: Body: $body');
     print('NotiService: Payload: $payload');
     print('NotiService: Is initialized: $_isInitialized');
+    print('NotiService: Plugin instance: ${notificationsPlugin != null ? 'OK' : 'NULL'}');
     
     try {
       if (!_isInitialized) {
@@ -143,6 +145,7 @@ class NotiService {
 
       final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       print('NotiService: Showing notification with ID: $id');
+      print('NotiService: Notification details: $notificationDetails');
       
       await notificationsPlugin.show(
         id,
@@ -153,8 +156,65 @@ class NotiService {
       );
       print('NotiService: Notification shown successfully with ID: $id');
     } catch (e) {
-      print('NotiService: Error showing notification: $e');
+      print('=== NotiService: Error showing notification ===');
+      print('NotiService: Error: $e');
+      print('NotiService: Error type: ${e.runtimeType}');
       print('NotiService: Stack trace: ${StackTrace.current}');
+      rethrow;
+    }
+  }
+
+  // SHOW NOTIFICATION WITHOUT RE-INITIALIZATION (สำหรับ background service)
+  Future<void> showNotificationWithoutInit({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    print('=== NotiService: Attempting to show notification without init ===');
+    print('NotiService: Title: $title');
+    print('NotiService: Body: $body');
+    print('NotiService: Payload: $payload');
+    print('NotiService: Is initialized: $_isInitialized');
+    
+    try {
+      // ใช้ notification details แบบ simple โดยไม่ต้อง initialize ใหม่
+      const notificationDetails = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'socket_service_channel',  // ใช้ channel เดียวกับ background service
+          '12Chat Background Service',
+          channelDescription: 'ช่องทางการแจ้งเตือนสำหรับ Background Service',
+          importance: Importance.high,
+          priority: Priority.high,
+          showWhen: true,
+          enableVibration: true,
+          playSound: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      );
+
+      final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      print('NotiService: Showing notification without init with ID: $id');
+      
+      // ลองแสดง notification โดยไม่ต้อง initialize ใหม่
+      await notificationsPlugin.show(
+        id,
+        title,
+        body,
+        notificationDetails,
+        payload: payload,
+      );
+      print('NotiService: Notification without init shown successfully with ID: $id');
+    } catch (e) {
+      print('=== NotiService: Error showing notification without init ===');
+      print('NotiService: Error: $e');
+      print('NotiService: Error type: ${e.runtimeType}');
+      print('NotiService: Stack trace: ${StackTrace.current}');
+      
+      // ถ้าไม่สำเร็จ ให้ throw error เพื่อให้ caller จัดการต่อ
       rethrow;
     }
   }

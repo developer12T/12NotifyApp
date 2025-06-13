@@ -142,6 +142,8 @@ class _ProfilePageState extends State<ProfilePage> {
                       _buildInfoRow(Icons.work, 'ตำแหน่ง', _userData!['positon'] ?? '-'),
                       _buildInfoRow(Icons.business, 'แผนก', _userData!['department'] ?? '-'),
                       _buildInfoRow(Icons.business_center, 'บริษัท', _userData!['company'] ?? '-'),
+                      // const SizedBox(height: 20),
+                      _buildLogoutButton(),
                     ],
                   ),
                 ),
@@ -188,5 +190,140 @@ class _ProfilePageState extends State<ProfilePage> {
         ],
       ),
     );
+  }
+
+  Widget _buildLogoutButton() {
+    return Container(
+      margin: const EdgeInsets.only(top: 2),
+      child: InkWell(
+        onTap: _showLogoutConfirmation,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE0E6ED)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.logout,
+                color: Colors.red[600],
+                size: 20,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'ออกจากระบบ',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red[600],
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLogoutConfirmation() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                Icons.logout,
+                color: Colors.red[600],
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'ยืนยันการออกจากระบบ',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'คุณต้องการออกจากระบบหรือไม่?',
+            style: TextStyle(fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                'ยกเลิก',
+                style: TextStyle(
+                  color: Color(0xFF00569D),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _logout();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[600],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'ออกจากระบบ',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _logout() async {
+    try {
+      // ล้างข้อมูลผู้ใช้จาก SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      
+      // นำผู้ใช้กลับไปหน้า login
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/login',
+          (Route<dynamic> route) => false,
+        );
+      }
+    } catch (e) {
+      print('Error during logout: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('เกิดข้อผิดพลาดในการออกจากระบบ'),
+            backgroundColor: Colors.red[600],
+          ),
+        );
+      }
+    }
   }
 } 

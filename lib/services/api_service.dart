@@ -7,15 +7,28 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'unified_socket_service.dart';
+import 'retry_manager.dart';
 
 class ApiService {
-  IO.Socket? socket; // Make socket nullable
+  // ใช้ UnifiedSocketService แทนการจัดการ Socket เอง
+  final UnifiedSocketService _unifiedSocketService = UnifiedSocketService();
+  
   String? userId;
   static String get baseUrl =>
       // 'http://127.0.0.1:3000';
       'https://apps.onetwotrading.co.th/12chat';
   String? _token;
-  bool _isInitialized = false; // Add initialization flag
+  bool _isInitialized = false;
+
+  // Getter สำหรับ socket เพื่อความเข้ากันได้กับโค้ดเดิม
+  IO.Socket? get socket => _unifiedSocketService.socket;
+  
+  // Setter สำหรับ socket เพื่อความเข้ากันได้กับโค้ดเดิม
+  set socket(IO.Socket? value) {
+    // ไม่ต้องทำอะไร เพราะ socket ถูกจัดการโดย UnifiedSocketService
+    print('ApiService: Socket setter called - ignoring (managed by UnifiedSocketService)');
+  }
 
   ApiService() {
     print('=== ApiService Constructor ===');
@@ -26,11 +39,11 @@ class ApiService {
     print('=== Starting ApiService Initialization ===');
     try {
       await _loadUserId();
-      await _initSocket();
+      await _initUnifiedSocket();
       _isInitialized = true;
       print('=== ApiService Initialization Complete ===');
-      print('Socket connected: ${socket?.connected}');
-      print('Socket ID: ${socket?.id}');
+      print('Socket connected: ${_unifiedSocketService.isConnected}');
+      print('Socket ID: ${_unifiedSocketService.socketId}');
       print('User ID: $userId');
     } catch (e) {
       print('=== ApiService Initialization Error ===');
@@ -62,118 +75,41 @@ class ApiService {
     }
   }
 
-  Future<void> _initSocket() async {
-    print('=== Socket Initialization ===');
-    print('Connecting to: $baseUrl');
+  Future<void> _initUnifiedSocket() async {
+    print('=== UnifiedSocket Initialization ===');
     print('User ID at socket init: $userId');
 
-    if (socket != null) {
-      print('Socket already exists, disposing old connection');
-      print('Old socket ID: ${socket?.id}');
-      print('Old socket connected: ${socket?.connected}');
-      socket?.disconnect();
-      socket?.dispose();
-    }
-
     try {
-      socket = IO.io('https://apps.onetwotrading.co.th/', <String, dynamic>{
-     'transports': ['websocket'],
-      'path': '/chatio/socket.io/',
-      'reconnection': false,
-      'forceNew': true
-    });
-
-      print('Socket instance created with options:');
-      print('- URL: $baseUrl');
-      print('- Path: /12chat/socket.io');
-      print('- Transport: websocket');
-      print('- AutoConnect: false');
+      // เริ่มต้น UnifiedSocketService
+      await _unifiedSocketService.initialize(userId: userId);
       
-      // Add explicit connect call
-      print('Attempting to connect socket...');
-      socket?.connect();
-      print('Socket connect() called');
-
-      // Remove any existing listeners
-      socket?.off('connect');
-      socket?.off('disconnect');
-      socket?.off('error');
-      socket?.off('connectError');
-      socket?.off('newMessage');
-      socket?.off('messageSent');
-      socket?.off('roomJoined');
-      socket?.off('roomLeft');
-      socket?.off('messageBroadcast');
-      socket?.off('messageReceived');
-
-      print('Setting up socket event listeners');
-
-      socket?.onConnect((_) {
-        print('=== Socket Connected Successfully ===');
-        print('Socket ID: ${socket?.id}');
-        print('Socket connected: ${socket?.connected}');
+      // ตั้งค่า connection listeners
+      _unifiedSocketService.onConnection('connected', (event) {
+        print('=== ApiService: Socket Connected ===');
+        print('Socket ID: ${_unifiedSocketService.socketId}');
         print('User ID: $userId');
-        print('Socket auth: ${socket?.auth}');
-        print('Socket nsp: ${socket?.nsp}');
-
+        
         // Emit user connected event
         if (userId != null) {
-          socket?.emit('userConnected', {'userId': userId});
+          _unifiedSocketService.socket.emit('userConnected', {'userId': userId});
           print('Emitted userConnected event');
         }
       });
 
-      socket?.onDisconnect((_) {
-        print('=== Socket Disconnected ===');
+      _unifiedSocketService.onConnection('disconnected', (event) {
+        print('=== ApiService: Socket Disconnected ===');
         print('Attempting to reconnect...');
-        Future.delayed(const Duration(seconds: 2), () {
-          if (socket?.connected != true) {
-            _initSocket();
-          }
-        });
       });
 
-      socket?.onError((error) {
-        print('=== Socket Error ===');
-        print('Error: $error');
-        // Attempt to reconnect on error
-        Future.delayed(const Duration(seconds: 2), () {
-          if (socket?.connected != true) {
-            _initSocket();
-          }
-        });
+      _unifiedSocketService.onConnection('error', (event) {
+        print('=== ApiService: Socket Error ===');
+        print('Error: ${event['data']}');
       });
 
-      socket?.onConnectError((error) {
-        print('=== Socket Connect Error ===');
-        print('Error: $error');
-        print('Socket nsp: ${socket?.nsp}');
-        print('Socket connected: ${socket?.connected}');
-        print('Socket ID: ${socket?.id}');
-        print('Base URL: $baseUrl');
-        // Attempt to reconnect on connection error
-        Future.delayed(const Duration(seconds: 2), () {
-          if (socket?.connected != true) {
-            _initSocket();
-          }
-        });
-      });
-
-      // socket?.on('connect', (data) {
-      //   print('บอทเชื่อมต่อ socket สำเร็จ');
-      //   // ดูห้องที่บอท join อยู่
-      //   socket?.emit('getRooms', null, (rooms) {
-      //     print('ห้องที่บอท join: $rooms');
-      //   });
-      // });
+      print('UnifiedSocket initialization complete');
     } catch (e) {
-      print('Error initializing socket: $e');
-      // Attempt to reconnect on initialization error
-      Future.delayed(const Duration(seconds: 2), () {
-        if (socket?.connected != true) {
-          _initSocket();
-        }
-      });
+      print('Error initializing UnifiedSocket: $e');
+      rethrow;
     }
   }
 
@@ -188,27 +124,23 @@ class ApiService {
     print('fetchRooms: userId = $userId');
     if (userId == null) throw Exception('User ID not found');
 
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/rooms/employee/$userId'),
-    );
-    print('fetchRooms: statusCode = ${response.statusCode}');
-    print('fetchRooms: body = ${response.body}');
+    return RetryManager.withApiRetry(() async {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/rooms/employee/$userId'),
+      );
+      print('fetchRooms: statusCode = ${response.statusCode}');
+      print('fetchRooms: body = ${response.body}');
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data is Map && data['data'] != null && data['data'] is List) {
-        return data['data'];
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['data'] != null && data['data'] is List) {
+          return data['data'];
+        }
+        return [];
+      } else {
+        throw Exception('Failed to fetch rooms: ${response.statusCode}');
       }
-      if (data is Map && data['rooms'] != null) {
-        return data['rooms'];
-      }
-      if (data is List) {
-        return data;
-      }
-      throw Exception('Unexpected response format from fetchRooms');
-    } else {
-      throw Exception('Failed to fetch rooms');
-    }
+    });
   }
 
   Future<Map<String, dynamic>> fetchNotifications(
@@ -245,7 +177,7 @@ class ApiService {
     await ensureInitialized();
     if (socket == null || !socket!.connected) {
       print('Socket not connected, initializing...');
-      await _initSocket();
+      await _initUnifiedSocket();
     }
 
     try {
@@ -323,13 +255,13 @@ class ApiService {
     });
   }
 
-  Future<Map<String, dynamic>> sendMessage({
+  Future<dynamic> sendMessage({
     required String roomId,
     required String message,
     required String employeeId,
-    bool isAdminNotification = false,
     String? replyToId,
-    Map<String, dynamic>? replyToMessage,
+    String? replyToMessage,
+    bool isAdminNotification = false,
   }) async {
     await ensureInitialized();
     print('=== Sending Message ===');
@@ -337,37 +269,51 @@ class ApiService {
     print('Employee ID: $employeeId');
     print('Reply To ID: $replyToId');
     print('Reply Message: $replyToMessage');
-    print('Socket connected: ${socket?.connected}');
-    print('Socket ID: ${socket?.id}');
+    print('Socket connected: ${_unifiedSocketService.isConnected}');
+    print('Socket ID: ${_unifiedSocketService.socketId}');
 
     try {
-      if (socket?.connected != true) {
-        print('Socket not connected, attempting to reconnect...');
-        await _initSocket();
-        // Wait for connection
-        int attempts = 0;
-        while (socket?.connected != true && attempts < 5) {
-          await Future.delayed(const Duration(seconds: 1));
-          attempts++;
+      // พยายามส่งผ่าน socket ก่อน (หลัก)
+      if (_unifiedSocketService.isConnected) {
+        try {
+          await _unifiedSocketService.sendMessage(
+            roomId: roomId,
+            message: message,
+            replyToId: replyToId,
+            replyToMessage: replyToMessage,
+            isAdminNotification: isAdminNotification,
+          );
+          print('Message sent successfully via socket');
+          
+          // ส่งผ่าน HTTP เพื่อความแน่นอน (fallback)
+          try {
+            final response = await http.post(
+              Uri.parse('$baseUrl/api/messages/send'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'roomId': roomId,
+                'message': [message],
+                'employeeId': employeeId,
+                'isAdminNotification': isAdminNotification,
+                'isReply': replyToId != null,
+                'replyToId': replyToId,
+                'replyToMessage': replyToMessage,
+              }),
+            );
+            print('Message also sent via HTTP for persistence');
+          } catch (httpError) {
+            print('HTTP fallback failed but socket succeeded: $httpError');
+          }
+          
+          return {'success': true, 'method': 'socket'};
+        } catch (socketError) {
+          print('Socket send failed, trying HTTP: $socketError');
         }
-        if (socket?.connected != true) {
-          throw Exception('Failed to establish socket connection');
-        }
+      } else {
+        print('Socket not connected, using HTTP only');
       }
 
-      // Emit message directly through socket
-      // socket?.emit('sendMessage', {
-      //   'roomId': roomId,
-      //   'message': message,
-      //   'employeeId': employeeId,
-      //   'timestamp': DateTime.now().toIso8601String(),
-      //   'isAdminNotification': isAdminNotification,
-      //   'isReply': replyToId != null,
-      //   'replyToId': replyToId,
-      //   'replyToMessage': replyToMessage,
-      // });
-
-      // Also send through HTTP for persistence
+      // ถ้า socket ไม่สำเร็จ ให้ใช้ HTTP
       final response = await http.post(
         Uri.parse('$baseUrl/api/messages/send'),
         headers: {'Content-Type': 'application/json'},
@@ -392,38 +338,27 @@ class ApiService {
       final responseData = jsonDecode(response.body);
       return responseData['data'] ?? responseData;
     } catch (e) {
-      print('=== Error Sending Message ===');
-      print('Error details: $e');
+      print('Error sending message: $e');
       rethrow;
     }
   }
 
   void onNewMessage(Function(dynamic) callback) async {
     await ensureInitialized();
-    if (socket == null) {
-      print('Socket is null, initializing...');
-      await _initSocket();
-    }
-
+    
     print('=== Setting up New Message Listener ===');
-    print('Socket connected: ${socket?.connected}');
-    print('Socket ID: ${socket?.id}');
+    print('Socket connected: ${_unifiedSocketService.isConnected}');
+    print('Socket ID: ${_unifiedSocketService.socketId}');
 
-    // Remove ALL existing message listeners to prevent duplicates
-    socket?.off('newMessage');
-    socket?.off('messageBroadcast');
-    socket?.off('messageSent');
-    socket?.off('messageReceived');
-
-    // Listen for newMessage event
-    socket?.on('newMessage', (data) {
+    // ใช้ UnifiedSocketService สำหรับจัดการ message listeners
+    _unifiedSocketService.onMessage('newMessage', (data) {
       print('=== รับข้อความใหม่ ===');
       print(
         'เป็นข้อความจากบอท: ${(data is Map && data['sender'] is Map) ? (data['sender'] as Map)['role'] == 'bot' : false}',
       );
       print('ข้อมูลทั้งหมด: $data');
-      print('Socket connected: ${socket?.connected}');
-      print('Socket ID: ${socket?.id}');
+      print('Socket connected: ${_unifiedSocketService.isConnected}');
+      print('Socket ID: ${_unifiedSocketService.socketId}');
 
       try {
         // Handle case where data is a list
@@ -519,22 +454,19 @@ class ApiService {
       }
     });
 
-    // Add error handler
-    socket?.on('error', (error) {
+    // ตั้งค่า connection listeners สำหรับ error handling
+    _unifiedSocketService.onConnection('error', (event) {
       print('=== Socket Error in Message Listener ===');
-      print('Error: $error');
-      print('Socket connected: ${socket?.connected}');
-      print('Socket ID: ${socket?.id}\n');
+      print('Error: ${event['data']}');
+      print('Socket connected: ${_unifiedSocketService.isConnected}');
+      print('Socket ID: ${_unifiedSocketService.socketId}\n');
     });
 
-    // Add disconnect handler
-    socket?.on('disconnect', (reason) {
+    _unifiedSocketService.onConnection('disconnected', (event) {
       print('=== Socket Disconnected in Message Listener ===');
-      print('Reason: $reason');
-      print('Socket connected: ${socket?.connected}');
-      print('Socket ID: ${socket?.id}');
+      print('Socket connected: ${_unifiedSocketService.isConnected}');
+      print('Socket ID: ${_unifiedSocketService.socketId}');
       print('Attempting to reconnect...\n');
-      _initSocket();
     });
   }
 
@@ -551,7 +483,7 @@ class ApiService {
     print('Request body: ${jsonEncode(requestBody)}');
     print('Full URL: $baseUrl/api/rooms/notifications/read/$roomId');
 
-    try {
+    return RetryManager.withApiRetry(() async {
       final response = await http.post(
         Uri.parse('$baseUrl/api/rooms/notifications/read/$roomId'),
         headers: {
@@ -565,26 +497,13 @@ class ApiService {
       print('Response headers: ${response.headers}');
       print('Response body: ${response.body}');
 
-      if (response.statusCode != 200) {
-        final errorData = jsonDecode(response.body);
-        print('Error response data: $errorData');
-        final errorMessage =
-            errorData['message'] ?? 'Failed to mark room as read';
-        print('Error message: $errorMessage');
-        throw Exception(errorMessage);
+      if (response.statusCode == 200) {
+        print('Successfully marked room as read');
+        return;
+      } else {
+        throw Exception('Failed to mark room as read: ${response.statusCode}');
       }
-
-      // Listen for unreadCountUpdate socket event
-      socket?.once('unreadCountUpdate', (data) {
-        print('Received unreadCountUpdate event: $data');
-      });
-    } catch (e) {
-      print('❌ Error in markRoomAsRead:');
-      print('Error type: ${e.runtimeType}');
-      print('Error message: $e');
-      print('Stack trace: ${StackTrace.current}');
-      rethrow;
-    }
+    });
   }
 
   Future<Map<String, dynamic>> uploadImage(
@@ -907,52 +826,54 @@ class ApiService {
     print('Message: $message');
     print('Reply To ID: $replyToId');
     print('Reply Message: $replyToMessage');
-    print('Socket connected: ${socket?.connected}');
-    print('Socket ID: ${socket?.id}');
+    print('Socket connected: ${_unifiedSocketService.isConnected}');
+    print('Socket ID: ${_unifiedSocketService.socketId}');
 
     try {
-      if (socket?.connected != true) {
-        print('Socket not connected, attempting to reconnect...');
-        await _initSocket();
-        // Wait for connection
-        int attempts = 0;
-        while (socket?.connected != true && attempts < 5) {
-          await Future.delayed(const Duration(seconds: 1));
-          attempts++;
-        }
-        if (socket?.connected != true) {
-          throw Exception('Failed to establish socket connection');
-        }
-      }
-
       // Get current user ID
       final senderId = await getUserId();
       if (senderId == null) {
         throw Exception('User ID not found');
       }
 
-      // Create conversation ID
-      final conversationId = '${senderId}_$recipientId';
+      // พยายามส่งผ่าน socket ก่อน (หลัก)
+      if (_unifiedSocketService.isConnected) {
+        try {
+          await _unifiedSocketService.sendDirectMessage(
+            recipientId: recipientId,
+            message: message,
+            replyToId: replyToId,
+            replyToMessage: replyToMessage != null ? jsonEncode(replyToMessage) : null,
+          );
+          print('Direct message sent successfully via socket');
+          
+          // ส่งผ่าน HTTP เพื่อความแน่นอน (fallback)
+          try {
+            final response = await http.post(
+              Uri.parse('$baseUrl/api/direct-messages/send'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'employeeId': senderId,
+                'recipientId': recipientId,
+                'message': message,
+                'replyToId': replyToId,
+                'replyToMessage': replyToMessage,
+              }),
+            );
+            print('Direct message also sent via HTTP for persistence');
+          } catch (httpError) {
+            print('HTTP fallback failed but socket succeeded: $httpError');
+          }
+          
+          return {'success': true, 'method': 'socket'};
+        } catch (socketError) {
+          print('Socket send failed, trying HTTP: $socketError');
+        }
+      } else {
+        print('Socket not connected, using HTTP only');
+      }
 
-      // Emit direct message through socket
-      socket?.emit('sendDirectMessage', {
-        'employeeId': senderId,
-        'recipientId': recipientId,
-        'message': message,
-        'replyToId': replyToId,
-        'replyToMessage': replyToMessage,
-        'conversationId': conversationId,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-
-      // Also send through HTTP for persistence
-      print('Sending direct message body: ${jsonEncode({
-        'employeeId': senderId,
-        'recipientId': recipientId,
-        'message': message,
-        'replyToId': replyToId,
-        'replyToMessage': replyToMessage,
-      })}');
+      // ถ้า socket ไม่สำเร็จ ให้ใช้ HTTP
       final response = await http.post(
         Uri.parse('$baseUrl/api/direct-messages/send'),
         headers: {'Content-Type': 'application/json'},
@@ -998,7 +919,7 @@ class ApiService {
 
       if (socket?.connected != true) {
         print('Socket not connected, attempting to reconnect...');
-        await _initSocket();
+        await _initUnifiedSocket();
       }
 
       // Emit read status through socket
@@ -1334,6 +1255,80 @@ class ApiService {
       print('- Message: $e');
       print('- Stack trace: ${StackTrace.current}');
       rethrow;
+    }
+  }
+
+  /// Refresh socket subscriptions for list pages
+  Future<void> refreshListPageSubscriptions() async {
+    await ensureInitialized();
+    
+    if (userId != null && socket?.connected == true) {
+      print('Refreshing list page subscriptions');
+      
+      try {
+        // Add a small delay to ensure proper cleanup from previous subscriptions
+        await Future.delayed(const Duration(milliseconds: 150));
+        
+        // Subscribe to chat list updates
+        print('Subscribing to chat list updates...');
+        socket?.emit('subscribeChatList', {
+          'empId': userId
+        });
+        
+        // Subscribe to direct message updates with more detailed data
+        print('Subscribing to direct message updates...');
+        final directMessageData = {
+          'senderId': userId,
+          'recipientId': userId,
+        };
+        print('Direct message subscription data: $directMessageData');
+        socket?.emit('subscribeDirectMessages', directMessageData);
+        
+        // Add confirmation listeners with timeout
+        bool chatListConfirmed = false;
+        bool directMessagesConfirmed = false;
+        
+        socket?.once('chatListSubscribed', (data) {
+          print('✅ Chat list subscription confirmed: $data');
+          chatListConfirmed = true;
+        });
+        
+        socket?.once('directMessagesSubscribed', (data) {
+          print('✅ Direct messages subscription confirmed: $data');
+          directMessagesConfirmed = true;
+        });
+        
+        // Wait for confirmations with timeout
+        await Future.delayed(const Duration(milliseconds: 1000));
+        
+        if (!chatListConfirmed) {
+          print('⚠️ Chat list subscription confirmation not received, but continuing...');
+        }
+        if (!directMessagesConfirmed) {
+          print('⚠️ Direct messages subscription confirmation not received, but continuing...');
+        }
+        
+        print('List page subscriptions refreshed successfully');
+      } catch (e) {
+        print('❌ Error refreshing list page subscriptions: $e');
+        print('Stack trace: ${StackTrace.current}');
+      }
+    } else {
+      print('Cannot refresh subscriptions: User ID: $userId, Socket connected: ${socket?.connected}');
+      
+      // Try to reconnect if not connected
+      if (socket != null && !socket!.connected) {
+        print('🔄 Attempting to reconnect socket...');
+        socket?.connect();
+        
+        // Wait a bit and try again
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          if (userId != null) {
+            print('🔄 Retrying subscription after reconnection...');
+            refreshListPageSubscriptions();
+          }
+        });
+      }
     }
   }
 }

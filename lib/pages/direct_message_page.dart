@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:math';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/api_service.dart';
@@ -58,10 +59,60 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
   @override
   void dispose() {
+    print('DirectMessagePage disposed for recipient: ${widget.recipientId}');
+    
     _scrollController.dispose();
     _messageController.dispose();
     _messageFocusNode.dispose();
     _removeSocketListeners();
+    
+    // Unsubscribe from current direct message room
+    if (currentUserId != null && widget.apiService.socket?.connected == true) {
+      print('Unsubscribing from direct message room: ${widget.recipientId}');
+      final conversationId = '${currentUserId}_${widget.recipientId}';
+      widget.apiService.socket?.emit('unsubscribeDirectMessages', {
+        'senderId': currentUserId,
+        'recipientId': widget.recipientId,
+        'conversationId': conversationId,
+      });
+    }
+    
+    // Re-subscribe to direct message updates for the list page
+    if (currentUserId != null && widget.apiService.socket?.connected == true) {
+      print('Re-subscribing to direct message updates after leaving direct message page');
+      
+      // Use a longer delay to ensure proper cleanup first
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (widget.apiService.socket?.connected == true) {
+          // Subscribe to general direct message updates for list page
+          widget.apiService.socket?.emit('subscribeDirectMessages', {
+            'senderId': currentUserId,
+            'recipientId': currentUserId,
+          });
+          
+          // Also refresh all subscriptions using ApiService
+          widget.apiService.refreshListPageSubscriptions();
+          
+          print('✅ Re-subscription to direct message updates completed');
+        } else {
+          print('❌ Socket not connected, attempting to reconnect...');
+          
+          // Try to reconnect and resubscribe
+          widget.apiService.ensureInitialized().then((_) {
+            if (widget.apiService.socket?.connected == true) {
+              print('🔄 Socket reconnected, resubscribing...');
+              widget.apiService.socket?.emit('subscribeDirectMessages', {
+                'senderId': currentUserId,
+                'recipientId': currentUserId,
+              });
+              widget.apiService.refreshListPageSubscriptions();
+              print('✅ Re-subscription after reconnection completed');
+            }
+          });
+        }
+      });
+    }
+    
     super.dispose();
   }
 
@@ -325,22 +376,44 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           isConnecting = true;
         });
       }
+      
+      // Try to reconnect and retry
+      widget.apiService.ensureInitialized().then((_) {
+        if (widget.apiService.socket?.connected == true) {
+          print('🔄 Socket reconnected, retrying subscription...');
+          _subscribeToDirectMessages();
+        }
+      });
       return;
     }
 
     try {
+      final conversationId = '${currentUserId}_${widget.recipientId}';
       final subscriptionData = {
         'senderId': currentUserId,
         'recipientId': widget.recipientId,
-        'conversationId': '${currentUserId}_${widget.recipientId}',
+        'conversationId': conversationId,
       };
       
-      print('📡 Subscribing: $subscriptionData');
+      print('📡 Subscribing to Direct Messages:');
+      print('   - Sender ID: $currentUserId');
+      print('   - Recipient ID: ${widget.recipientId}');
+      print('   - Conversation ID: $conversationId');
+      print('   - Socket Connected: ${widget.apiService.socket?.connected}');
+      print('   - Socket ID: ${widget.apiService.socket?.id}');
+      
+      // First, join the direct message room
+      widget.apiService.socket?.emit('joinDirectMessageRoom', subscriptionData);
+      
+      // Then subscribe to direct messages
       widget.apiService.socket?.emit('subscribeDirectMessages', subscriptionData);
       
       // Listen for confirmation
+      bool subscriptionConfirmed = false;
       widget.apiService.socket?.once('directMessagesSubscribed', (data) {
-        print('✅ Subscription confirmed');
+        print('✅ Direct Messages Subscription confirmed');
+        print('   - Data: $data');
+        subscriptionConfirmed = true;
         if (mounted) {
           setState(() {
             isConnected = true;
@@ -349,14 +422,33 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         }
       });
 
+      // Add timeout for subscription confirmation
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted && !subscriptionConfirmed) {
+          print('⚠️ Subscription confirmation timeout, assuming connected');
+          setState(() {
+            isConnected = true;
+            isConnecting = false;
+          });
+        }
+      });
+
     } catch (e) {
-      print('❌ Error subscribing: $e');
+      print('❌ Error subscribing to direct messages: $e');
       if (mounted) {
         setState(() {
           isConnected = false;
           isConnecting = false;
         });
       }
+      
+      // Retry subscription after error
+      Future.delayed(const Duration(milliseconds: 1000), () {
+        if (mounted && currentUserId != null) {
+          print('🔄 Retrying subscription after error...');
+          _subscribeToDirectMessages();
+        }
+      });
     }
   }
 
@@ -595,14 +687,18 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
   /// แก้ไข: โหลดข้อความจาก API
   Future<void> _loadMessages() async {
-    if (currentUserId == null) return;
+    if (currentUserId == null) {
+      print('❌ Cannot load messages: currentUserId is null');
+      return;
+    }
 
     try {
-      print('\n=== 📥 DEBUG: Loading Messages ===');
+      print('\n=== 📥 Loading Direct Messages ===');
       print('📍 Called from: ${StackTrace.current.toString().split('\n')[1]}');
       print('⏰ Timestamp: ${DateTime.now().toIso8601String()}');
       print('👤 Current User ID: $currentUserId');
       print('📱 Recipient ID: ${widget.recipientId}');
+      print('🔗 Base URL: ${ApiService.baseUrl}');
 
       final url = Uri.parse('${ApiService.baseUrl}/api/direct-messages/conversation/${widget.recipientId}')
           .replace(queryParameters: {
@@ -612,11 +708,14 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       });
 
       print('🌐 API URL: $url');
+      
       final response = await http.get(url);
       print('📡 Response status: ${response.statusCode}');
+      print('📡 Response headers: ${response.headers}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        print('📊 Response data: $data');
         
         if (data['success'] && mounted) {
           final List<dynamic> messagesData = data['data'] ?? [];
@@ -624,7 +723,11 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
           setState(() {
             messages = messagesData.map((msg) {
-              return _createSafeMessage(Map<String, dynamic>.from(msg));
+              final safeMessage = _createSafeMessage(Map<String, dynamic>.from(msg));
+              print('   - Message ID: ${safeMessage['_id']}');
+              print('   - Sender: ${safeMessage['sender']?['fullName']}');
+              print('   - Message: ${safeMessage['message']?.substring(0, min(50, safeMessage['message']?.length ?? 0))}...');
+              return safeMessage;
             }).toList();
             
             _sortMessagesByTime();
@@ -644,6 +747,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           });
         } else {
           print('❌ API returned success: false');
+          print('❌ Error message: ${data['message'] ?? 'No error message'}');
           if (mounted) {
             setState(() {
               messages = [];
@@ -653,6 +757,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         }
       } else {
         print('❌ API returned status code: ${response.statusCode}');
+        print('❌ Response body: ${response.body}');
         if (mounted) {
           setState(() {
             messages = [];
@@ -662,6 +767,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       }
     } catch (e) {
       print('❌ Error loading messages: $e');
+      print('❌ Stack trace: ${StackTrace.current}');
       if (mounted) {
         setState(() {
           messages = [];
@@ -781,15 +887,26 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
   /// แก้ไข: ปรับปรุงการส่งข้อความ
   Future<void> _sendMessage() async {
     if (_messageController.text.trim().isEmpty || currentUserId == null || isSending) {
+      print('❌ Cannot send message:');
+      print('   - Text empty: ${_messageController.text.trim().isEmpty}');
+      print('   - Current user ID null: ${currentUserId == null}');
+      print('   - Already sending: $isSending');
       return;
     }
 
     final messageText = _messageController.text.trim();
+    print('\n=== 📤 Sending Direct Message ===');
+    print('👤 Current User ID: $currentUserId');
+    print('📱 Recipient ID: ${widget.recipientId}');
+    print('💬 Message: $messageText');
+    print('🔄 Reply To: ${_replyingToMessage?['_id']}');
+    
     setState(() => isSending = true);
 
     try {
       // สร้างข้อความชั่วคราว
       final tempMessage = _createTempMessage(messageText);
+      print('📝 Created temp message with ID: ${tempMessage['_id']}');
 
       setState(() {
         messages.add(tempMessage);
@@ -800,6 +917,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       _scrollToBottom();
 
       // ส่งข้อความผ่าน API
+      print('🌐 Calling API to send message...');
       final response = await widget.apiService.sendDirectMessage(
         recipientId: widget.recipientId,
         message: messageText,
@@ -809,7 +927,10 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
             : null,
       );
 
+      print('📡 API Response: $response');
+
       if (response['success'] == true) {
+        print('✅ Message sent successfully');
         setState(() {
           // ลบ temp message ออก
           messages.removeWhere((m) =>
@@ -820,11 +941,15 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
           _clearReply();
         });
       } else {
+        print('❌ API returned success: false');
+        print('❌ Error message: ${response['message'] ?? 'No error message'}');
         throw Exception(response['message'] ?? 'ไม่สามารถส่งข้อความได้');
       }
 
     } catch (e) {
       print('❌ Error sending message: $e');
+      print('❌ Stack trace: ${StackTrace.current}');
+      
       // ลบข้อความชั่วคราวเมื่อเกิดข้อผิดพลาด
       if (mounted) {
         setState(() {
@@ -1180,6 +1305,15 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
       print('Opening URL: $fullUrl');
 
+      // ตรวจสอบว่าเป็นไฟล์ PDF หรือไม่
+      final isPdf = fullUrl.toLowerCase().contains('.pdf');
+      
+      if (isPdf) {
+        // สำหรับไฟล์ PDF ให้แสดงตัวเลือก
+        _showPdfOptions(fullUrl);
+        return;
+      }
+
       // ถ้าเป็น Windows ให้เปิดในเบราว์เซอร์ภายนอก
       if (Platform.isWindows) {
         final uri = Uri.parse(fullUrl);
@@ -1204,6 +1338,175 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
               textColor: Colors.white,
               onPressed: () => _launchUrl(url),
             ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// แสดงตัวเลือกสำหรับไฟล์ PDF
+  void _showPdfOptions(String url) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => SafeArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.picture_as_pdf, color: Colors.red[600], size: 24),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'ไฟล์ PDF',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                leading: Icon(Icons.download, color: Colors.blue[600]),
+                title: const Text('ดาวน์โหลดไฟล์'),
+                subtitle: const Text('บันทึกไฟล์ไว้ดูภายหลัง'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _downloadPdfFile(url);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.open_in_browser, color: Colors.green[600]),
+                title: const Text('เปิดในเบราว์เซอร์'),
+                subtitle: const Text('เปิดในเบราว์เซอร์ภายนอก'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openPdfInBrowser(url);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.share, color: Colors.orange[600]),
+                title: const Text('แชร์ลิงก์'),
+                subtitle: const Text('แชร์ลิงก์ไฟล์'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _sharePdfLink(url);
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ดาวน์โหลดไฟล์ PDF
+  Future<void> _downloadPdfFile(String url) async {
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('กำลังดาวน์โหลดไฟล์...'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+
+      final uri = Uri.parse(url);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('เปิดไฟล์ในเบราว์เซอร์แล้ว'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error downloading PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถดาวน์โหลดไฟล์ได้: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// เปิด PDF ในเบราว์เซอร์
+  Future<void> _openPdfInBrowser(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('เปิดไฟล์ในเบราว์เซอร์แล้ว'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error opening PDF in browser: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถเปิดไฟล์ได้: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// แชร์ลิงก์ PDF
+  Future<void> _sharePdfLink(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('แชร์ลิงก์แล้ว'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error sharing PDF link: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถแชร์ลิงก์ได้: $e'),
+            backgroundColor: Colors.red,
           ),
         );
       }
@@ -1996,65 +2299,95 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
     final isDesktop = MediaQuery.of(context).size.width > 600;
 
     return Scaffold(
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
         title: Row(
           children: [
             // Avatar
-            if (widget.recipientImage != null)
-              Hero(
-                tag: 'avatar_${widget.recipientId}',
-                child: CircleAvatar(
-                  backgroundImage: NetworkImage(widget.recipientImage!),
-                  radius: 16,
-                ),
-              )
-            else
-              Hero(
-                tag: 'avatar_${widget.recipientId}',
-                child: CircleAvatar(
-                  backgroundColor: colorScheme.primary,
-                  child: Text(
-                    widget.recipientName[0].toUpperCase(),
-                    style: TextStyle(color: colorScheme.onPrimary),
-                  ),
-                  radius: 16,
-                ),
-              ),
-            const SizedBox(width: 8),
+            CircleAvatar(
+              radius: 18,
+              backgroundImage: widget.recipientImage != null
+                  ? NetworkImage(widget.recipientImage!)
+                  : null,
+              backgroundColor: colorScheme.primary,
+              child: widget.recipientImage == null
+                  ? Text(
+                      widget.recipientName[0].toUpperCase(),
+                      style: TextStyle(
+                        color: colorScheme.onPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            
             // Name and status
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.recipientName,
-                  style: const TextStyle(
-                    color: Colors.black87,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.recipientName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                // Text(
-                //   isConnected ? 'ออนไลน์' : isConnecting ? 'กำลังเชื่อมต่อ...' : 'ออฟไลน์',
-                //   style: theme.textTheme.bodySmall?.copyWith(
-                //     color: isConnected 
-                //         ? Colors.green 
-                //         : isConnecting 
-                //             ? Colors.orange 
-                //             : Colors.grey,
-                //     fontSize: 12,
-                //   ),
-                // ),
-              ],
+                  Row(
+                    children: [
+                      // Connection status indicator
+                      // Container(
+                      //   width: 8,
+                      //   height: 8,
+                      //   decoration: BoxDecoration(
+                      //     shape: BoxShape.circle,
+                      //     color: isConnected 
+                      //         ? Colors.green 
+                      //         : isConnecting 
+                      //             ? Colors.orange 
+                      //             : Colors.red,
+                      //   ),
+                      // ),
+                      const SizedBox(width: 6),
+                      // Text(
+                      //   isConnected 
+                      //       ? 'ออนไลน์' 
+                      //       : isConnecting 
+                      //           ? 'กำลังเชื่อมต่อ...' 
+                      //           : 'ออฟไลน์',
+                      //   style: TextStyle(
+                      //     fontSize: 12,
+                      //     color: isConnected 
+                      //         ? Colors.green 
+                      //         : isConnecting 
+                      //             ? Colors.orange 
+                      //             : Colors.red,
+                      //   ),
+                      // ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
+        actions: [
+          // Debug info button (only in debug mode)
+          // if (const bool.fromEnvironment('dart.vm.product') == false)
+          //   IconButton(
+          //     icon: const Icon(Icons.bug_report),
+          //     onPressed: () {
+          //       _showDebugInfo();
+          //     },
+          //     tooltip: 'Debug Info',
+          //   ),
+        ],
       ),
       resizeToAvoidBottomInset: true, // เพิ่มบรรทัดนี้
       body: SafeArea(
@@ -2303,29 +2636,37 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
                           color: Colors.grey[100],
                           borderRadius: BorderRadius.circular(24),
                         ),
-                        child: TextField(
-                          controller: _messageController,
-                          focusNode: _messageFocusNode,
-                          maxLines: null,
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: TextInputAction.newline,
-                          style: const TextStyle(fontSize: 15),
-                          decoration: InputDecoration(
-                            hintText: _replyingToMessage != null
-                                ? 'พิมพ์ข้อความตอบกลับ...'
-                                : 'พิมพ์ข้อความ...',
-                            hintStyle: TextStyle(color: Colors.grey[500]),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 12,
+                        constraints: const BoxConstraints(
+                          maxHeight: 120, // จำกัดความสูงสูงสุด
+                        ),
+                        child: SingleChildScrollView(
+                          child: TextField(
+                            controller: _messageController,
+                            focusNode: _messageFocusNode,
+                            maxLines: null,
+                            minLines: 1,
+                            maxLength: 1000, // จำกัดความยาวข้อความ
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            style: const TextStyle(fontSize: 15),
+                            decoration: InputDecoration(
+                              hintText: _replyingToMessage != null
+                                  ? 'พิมพ์ข้อความตอบกลับ...'
+                                  : 'พิมพ์ข้อความ...',
+                              hintStyle: TextStyle(color: Colors.grey[500]),
+                              border: InputBorder.none,
+                              counterText: '', // ซ่อนตัวนับ
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
                             ),
+                            onSubmitted: (_) {
+                              if (_messageController.text.trim().isNotEmpty) {
+                                _sendMessage();
+                              }
+                            },
                           ),
-                          onSubmitted: (_) {
-                            if (_messageController.text.trim().isNotEmpty) {
-                              _sendMessage();
-                            }
-                          },
                         ),
                       ),
                     ),
@@ -2394,5 +2735,54 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         SnackBar(content: Text('เกิดข้อผิดพลาด: ${e.toString()}')),
       );
     }
+  }
+
+  /// แสดงข้อมูล debug
+  void _showDebugInfo() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Debug Information'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Current User ID: $currentUserId'),
+                Text('Recipient ID: ${widget.recipientId}'),
+                Text('Recipient Name: ${widget.recipientName}'),
+                const SizedBox(height: 8),
+                Text('Socket Connected: ${widget.apiService.socket?.connected}'),
+                Text('Socket ID: ${widget.apiService.socket?.id}'),
+                Text('Is Connected: $isConnected'),
+                Text('Is Connecting: $isConnecting'),
+                const SizedBox(height: 8),
+                Text('Messages Count: ${messages.length}'),
+                Text('Is Loading: $isLoading'),
+                Text('Is Sending: $isSending'),
+                const SizedBox(height: 8),
+                Text('Reply To Message: ${_replyingToMessage?['_id'] ?? 'None'}'),
+                Text('Selected Image: ${_selectedImage != null ? 'Yes' : 'No'}'),
+                Text('Selected File: ${_selectedFile != null ? 'Yes' : 'No'}'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('ปิด'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _subscribeToDirectMessages();
+              },
+              child: const Text('Reconnect'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
