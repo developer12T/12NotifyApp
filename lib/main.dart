@@ -153,6 +153,10 @@ void onStart(ServiceInstance service) async {
     socketService.subscribeToAnnouncements();
     print('=== Background Service: Subscribed to announcements ===');
     
+    // Subscribe to all notifications for background
+    socketService.subscribeToAllNotifications();
+    print('=== Background Service: Subscribed to all notifications ===');
+    
     // ตั้งค่า announcement listener สำหรับ background
     socketService.onNewAnnouncement(
       (data) {
@@ -229,8 +233,111 @@ void onStart(ServiceInstance service) async {
       });
     });
     
+    // รับคำสั่งแสดง notification สำหรับแชทกลุ่ม
+    service.on('showGroupChatNotification').listen((event) {
+      print('=== Background Service: Show Group Chat Notification Command ===');
+      print('Event: $event');
+      
+      if (event != null && event is Map) {
+        final roomName = event['roomName']?.toString() ?? 'กลุ่ม';
+        final senderName = event['senderName']?.toString() ?? 'ผู้ใช้';
+        final message = event['message']?.toString() ?? 'ข้อความใหม่';
+        final unreadCount = event['unreadCount'] ?? 1;
+        
+        final title = 'ข้อความใหม่ในกลุ่ม $roomName';
+        final body = '$senderName: $message';
+        
+        try {
+          final notiService = NotiService();
+          notiService.showNotificationWithoutInit(
+            title: title,
+            body: body,
+            payload: jsonEncode({
+              'type': 'group_chat',
+              'roomId': event['roomId'],
+              'roomName': roomName,
+              'senderName': senderName,
+              'message': message,
+              'unreadCount': unreadCount,
+              'timestamp': event['timestamp'] ?? DateTime.now().toIso8601String(),
+            }),
+          );
+          print('=== Background Service: Group chat notification shown successfully ===');
+        } catch (e) {
+          print('=== Background Service: Error showing group chat notification ===');
+          print('Error: $e');
+        }
+      }
+    });
+
+    // รับคำสั่งแสดง notification สำหรับ direct message
+    service.on('showDirectMessageNotification').listen((event) {
+      print('=== Background Service: Show Direct Message Notification Command ===');
+      print('Event: $event');
+      
+      if (event != null && event is Map) {
+        final senderName = event['senderName']?.toString() ?? 'ผู้ใช้';
+        final message = event['message']?.toString() ?? 'ข้อความใหม่';
+        final unreadCount = event['unreadCount'] ?? 1;
+        
+        final title = 'ข้อความใหม่จาก $senderName';
+        final body = message.length > 50 ? '${message.substring(0, 50)}...' : message;
+        
+        try {
+          final notiService = NotiService();
+          notiService.showNotificationWithoutInit(
+            title: title,
+            body: body,
+            payload: jsonEncode({
+              'type': 'direct_message',
+              'senderId': event['senderId'],
+              'senderName': senderName,
+              'message': message,
+              'unreadCount': unreadCount,
+              'timestamp': event['timestamp'] ?? DateTime.now().toIso8601String(),
+            }),
+          );
+          print('=== Background Service: Direct message notification shown successfully ===');
+        } catch (e) {
+          print('=== Background Service: Error showing direct message notification ===');
+          print('Error: $e');
+        }
+      }
+    });
+
+    // รับคำสั่งแสดง notification สำหรับการแจ้งเตือนทั่วไป
+    service.on('showGeneralNotification').listen((event) {
+      print('=== Background Service: Show General Notification Command ===');
+      print('Event: $event');
+      
+      if (event != null && event is Map) {
+        final title = event['title']?.toString() ?? 'การแจ้งเตือน';
+        final body = event['body']?.toString() ?? 'คุณมีการแจ้งเตือนใหม่';
+        final notificationType = event['notificationType']?.toString() ?? 'general';
+        
+        try {
+          final notiService = NotiService();
+          notiService.showNotificationWithoutInit(
+            title: title,
+            body: body,
+            payload: jsonEncode({
+              'type': notificationType,
+              'title': title,
+              'content': body,
+              'timestamp': event['timestamp'] ?? DateTime.now().toIso8601String(),
+              'data': event['data'],
+            }),
+          );
+          print('=== Background Service: General notification shown successfully ===');
+        } catch (e) {
+          print('=== Background Service: Error showing general notification ===');
+          print('Error: $e');
+        }
+      }
+    });
+    
     // Keep service alive with periodic check
-    Timer.periodic(const Duration(minutes: 2), (timer) {
+    Timer.periodic(const Duration(minutes: 1), (timer) {
       try {
         print('=== Background Service: Periodic Check ===');
         print('Socket connected: ${socketService.isConnected}');

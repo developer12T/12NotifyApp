@@ -137,10 +137,34 @@ class SocketService {
   bool _isInBackgroundService() {
     try {
       final stackTrace = StackTrace.current.toString();
-      return stackTrace.contains('flutter_background_service') || 
+      
+      // ตรวจสอบหลายเงื่อนไขเพื่อให้แน่ใจว่าเป็น background service
+      final isBackground = stackTrace.contains('flutter_background_service') || 
              stackTrace.contains('BackgroundService') ||
              stackTrace.contains('onStart') ||
-             stackTrace.contains('_showBackgroundNotification');
+             stackTrace.contains('_showBackgroundNotification') ||
+             stackTrace.contains('ServiceInstance') ||
+             stackTrace.contains('background_service');
+      
+      print('=== SocketService: Background service check ===');
+      print('Stack trace contains flutter_background_service: ${stackTrace.contains('flutter_background_service')}');
+      print('Stack trace contains BackgroundService: ${stackTrace.contains('BackgroundService')}');
+      print('Stack trace contains onStart: ${stackTrace.contains('onStart')}');
+      print('Stack trace contains ServiceInstance: ${stackTrace.contains('ServiceInstance')}');
+      print('Stack trace contains background_service: ${stackTrace.contains('background_service')}');
+      print('Is background service: $isBackground');
+      
+      // เพิ่มการตรวจสอบจาก FlutterBackgroundService
+      try {
+        final service = FlutterBackgroundService();
+        service.isRunning().then((isRunning) {
+          print('=== SocketService: FlutterBackgroundService.isRunning(): $isRunning ===');
+        });
+      } catch (e) {
+        print('=== SocketService: Error checking FlutterBackgroundService: $e ===');
+      }
+      
+      return isBackground;
     } catch (e) {
       print('Error checking background service: $e');
       return false;
@@ -251,6 +275,50 @@ class SocketService {
   void subscribeToAnnouncements() {
     print('=== SocketService: Subscribing to Announcements ===');
     _unifiedSocketService.subscribeToAnnouncements();
+  }
+
+  /// Subscribe ไปยังการแจ้งเตือนแชทกลุ่ม
+  void subscribeToGroupChatNotifications() {
+    print('=== SocketService: Subscribing to Group Chat Notifications ===');
+    
+    // ตั้งค่า listener สำหรับข้อความใหม่ในแชทกลุ่ม
+    _unifiedSocketService.onMessage('newMessageNotification', (data) {
+      print('=== SocketService: New Group Chat Message Received ===');
+      print('Data: $data');
+      
+      // จัดการการแจ้งเตือนข้อความใหม่ในแชทกลุ่ม
+      _handleGroupChatNotification(data);
+    });
+  }
+
+  /// Subscribe ไปยังการแจ้งเตือน direct message
+  void subscribeToDirectMessageNotifications() {
+    print('=== SocketService: Subscribing to Direct Message Notifications ===');
+    
+    // ตั้งค่า listener สำหรับข้อความใหม่ใน direct message
+    _unifiedSocketService.onMessage('newDirectMessageNotification', (data) {
+      print('=== SocketService: New Direct Message Received ===');
+      print('Data: $data');
+      
+      // จัดการการแจ้งเตือนข้อความใหม่ใน direct message
+      _handleDirectMessageNotification(data);
+    });
+  }
+
+  /// Subscribe ไปยังการแจ้งเตือนทั้งหมด
+  void subscribeToAllNotifications() {
+    print('=== SocketService: Subscribing to All Notifications ===');
+    
+    // Subscribe ไปยังประกาศ
+    subscribeToAnnouncements();
+    
+    // Subscribe ไปยังการแจ้งเตือนแชทกลุ่ม
+    subscribeToGroupChatNotifications();
+    
+    // Subscribe ไปยังการแจ้งเตือน direct message
+    subscribeToDirectMessageNotifications();
+    
+    print('=== SocketService: All notifications subscribed ===');
   }
 
   /// เพิ่ม listener สำหรับข้อความ
@@ -424,6 +492,225 @@ class SocketService {
       print('=== SocketService: Test announcement notification sent successfully ===');
     } catch (e) {
       print('=== SocketService: Error sending test announcement notification: $e ===');
+    }
+  }
+
+  /// จัดการการแจ้งเตือนข้อความใหม่ในแชทกลุ่ม
+  void _handleGroupChatNotification(dynamic data) {
+    try {
+      print('=== SocketService: Handling Group Chat Notification ===');
+      print('Data: $data');
+      
+      if (data is Map<String, dynamic>) {
+        final roomId = data['roomId']?.toString();
+        final roomName = data['roomName']?.toString() ?? 'กลุ่ม';
+        final message = data['message']?.toString() ?? 'ข้อความใหม่';
+        final sender = data['sender'];
+        final unreadCount = data['unreadCount'] ?? 1;
+        
+        String senderName = 'ผู้ใช้';
+        if (sender is Map<String, dynamic>) {
+          senderName = sender['fullNameThai']?.toString() ?? 
+                      sender['fullName']?.toString() ?? 
+                      'ผู้ใช้';
+        }
+        
+        print('=== SocketService: Group Chat Notification Details ===');
+        print('Room ID: $roomId');
+        print('Room Name: $roomName');
+        print('Sender: $senderName');
+        print('Message: $message');
+        print('Unread Count: $unreadCount');
+        
+        // ตรวจสอบว่าเป็น background service หรือไม่
+        bool isInBackgroundService = _isInBackgroundService();
+        print('=== SocketService: Is in background service: $isInBackgroundService ===');
+        
+        if (isInBackgroundService) {
+          // ส่งคำสั่งไปยัง background service
+          _sendToBackgroundService('showGroupChatNotification', {
+            'roomId': roomId,
+            'roomName': roomName,
+            'senderName': senderName,
+            'message': message,
+            'unreadCount': unreadCount,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+        } else {
+          // ใช้ NotiService ปกติ
+          _notiService.showNotification(
+            title: 'ข้อความใหม่ในกลุ่ม $roomName',
+            body: '$senderName: $message',
+            payload: json.encode({
+              'type': 'group_chat',
+              'roomId': roomId,
+              'roomName': roomName,
+              'senderName': senderName,
+              'message': message,
+              'unreadCount': unreadCount,
+              'timestamp': DateTime.now().toIso8601String(),
+            }),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error handling group chat notification: $e');
+      print('Error details: ${e.toString()}');
+    }
+  }
+
+  /// จัดการการแจ้งเตือนข้อความใหม่ใน direct message
+  void _handleDirectMessageNotification(dynamic data) {
+    try {
+      print('=== SocketService: Handling Direct Message Notification ===');
+      print('Data: $data');
+      
+      if (data is Map<String, dynamic>) {
+        final senderId = data['senderId']?.toString();
+        final message = data['message']?.toString() ?? 'ข้อความใหม่';
+        final sender = data['sender'];
+        final unreadCount = data['unreadCount'] ?? 1;
+        
+        String senderName = 'ผู้ใช้';
+        if (sender is Map<String, dynamic>) {
+          senderName = sender['fullNameThai']?.toString() ?? 
+                      sender['fullName']?.toString() ?? 
+                      'ผู้ใช้';
+        }
+        
+        print('=== SocketService: Direct Message Notification Details ===');
+        print('Sender ID: $senderId');
+        print('Sender: $senderName');
+        print('Message: $message');
+        print('Unread Count: $unreadCount');
+        
+        // ตรวจสอบว่าเป็น background service หรือไม่
+        bool isInBackgroundService = _isInBackgroundService();
+        print('=== SocketService: Is in background service: $isInBackgroundService ===');
+        
+        if (isInBackgroundService) {
+          // ส่งคำสั่งไปยัง background service
+          _sendToBackgroundService('showDirectMessageNotification', {
+            'senderId': senderId,
+            'senderName': senderName,
+            'message': message,
+            'unreadCount': unreadCount,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+        } else {
+          // ใช้ NotiService ปกติ
+          final shortMessage = message.length > 50 ? '${message.substring(0, 50)}...' : message;
+          _notiService.showNotification(
+            title: 'ข้อความใหม่จาก $senderName',
+            body: shortMessage,
+            payload: json.encode({
+              'type': 'direct_message',
+              'senderId': senderId,
+              'senderName': senderName,
+              'message': message,
+              'unreadCount': unreadCount,
+              'timestamp': DateTime.now().toIso8601String(),
+            }),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error handling direct message notification: $e');
+      print('Error details: ${e.toString()}');
+    }
+  }
+
+  /// ส่งคำสั่งไปยัง background service
+  void _sendToBackgroundService(String command, Map<String, dynamic> data) {
+    try {
+      print('=== SocketService: Sending to Background Service ===');
+      print('Command: $command');
+      print('Data: $data');
+      
+      // ใช้ FlutterBackgroundService เพื่อส่งคำสั่ง
+      final service = FlutterBackgroundService();
+      
+      // ตรวจสอบว่า background service ทำงานอยู่หรือไม่
+      service.isRunning().then((isRunning) {
+        print('=== SocketService: Background service is running: $isRunning ===');
+        
+        if (isRunning) {
+          service.invoke(command, data);
+          print('=== SocketService: Command sent to background service successfully ===');
+        } else {
+          print('=== SocketService: Background service not running, using fallback ===');
+          // ใช้ fallback method แทน
+          _showCommandFallbackNotification(data, command);
+        }
+      }).catchError((error) {
+        print('=== SocketService: Error checking background service status ===');
+        print('Error: $error');
+        print('=== SocketService: Using fallback due to error ===');
+        _showCommandFallbackNotification(data, command);
+      });
+      
+    } catch (e) {
+      print('=== SocketService: Error sending to background service ===');
+      print('Error: $e');
+      print('=== SocketService: Using fallback due to exception ===');
+      _showCommandFallbackNotification(data, command);
+    }
+  }
+
+  /// Fallback notification method เมื่อ background service ไม่ทำงาน
+  void _showCommandFallbackNotification(Map<String, dynamic> data, String command) {
+    try {
+      print('=== SocketService: Using fallback notification method ===');
+      
+      String title = 'การแจ้งเตือน';
+      String body = 'คุณมีการแจ้งเตือนใหม่';
+      
+      if (command == 'showGroupChatNotification') {
+        final roomName = data['roomName']?.toString() ?? 'กลุ่ม';
+        final senderName = data['senderName']?.toString() ?? 'ผู้ใช้';
+        final message = data['message']?.toString() ?? 'ข้อความใหม่';
+        
+        title = 'ข้อความใหม่ในกลุ่ม $roomName';
+        body = '$senderName: $message';
+      } else if (command == 'showDirectMessageNotification') {
+        final senderName = data['senderName']?.toString() ?? 'ผู้ใช้';
+        final message = data['message']?.toString() ?? 'ข้อความใหม่';
+        
+        title = 'ข้อความใหม่จาก $senderName';
+        body = message.length > 50 ? '${message.substring(0, 50)}...' : message;
+      }
+      
+      // ใช้ FlutterLocalNotificationsPlugin โดยตรง
+      final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+      
+      const notificationDetails = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'socket_service_channel',
+          '12Chat Background Service',
+          channelDescription: 'ช่องทางการแจ้งเตือนสำหรับ Background Service',
+          importance: Importance.high,
+          priority: Priority.high,
+          showWhen: true,
+          enableVibration: true,
+          playSound: true,
+        ),
+      );
+
+      final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      
+      flutterLocalNotificationsPlugin.show(
+        id,
+        title,
+        body,
+        notificationDetails,
+        payload: json.encode(data),
+      );
+      
+      print('=== SocketService: Fallback notification shown successfully ===');
+      
+    } catch (e) {
+      print('=== SocketService: Fallback notification failed ===');
+      print('Error: $e');
     }
   }
 } 
