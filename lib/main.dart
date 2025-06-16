@@ -69,7 +69,9 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final userData = prefs.getString('user');
 
-  runApp(MyApp(initialRoute: userData != null ? '/main' : '/login'));
+  runApp(AppLifecycleManager(
+    child: MyApp(initialRoute: userData != null ? '/main' : '/login'),
+  ));
 }
 
 // เพิ่มฟังก์ชัน Background Service (แบบไม่ใช้ foreground)
@@ -84,14 +86,14 @@ Future<void> initializeService() async {
   
   await service.configure(
     iosConfiguration: IosConfiguration(
-      autoStart: true,
+      autoStart: false, // เปลี่ยนเป็น false เพื่อไม่ให้ autoStart
       onForeground: onStart,
       onBackground: onIosBackground,
     ),
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
-      autoStart: true,
-      isForegroundMode: true, // เปลี่ยนเป็น true เพื่อให้ service ทำงานต่อเนื่อง
+      autoStart: false, // เปลี่ยนเป็น false เพื่อไม่ให้ autoStart
+      isForegroundMode: false, // เปลี่ยนเป็น false เพื่อไม่ให้เป็น foreground service
       notificationChannelId: 'socket_service_channel',
       initialNotificationTitle: '12Chat Background Service',
       initialNotificationContent: 'กำลังทำงานในเบื้องหลัง',
@@ -532,19 +534,38 @@ Future<void> _ensureBackgroundServiceRunning() async {
     print('=== Main App: Background service status check ===');
     print('Background service is running: $isRunning');
     
-    if (!isRunning) {
-      print('=== Main App: Starting background service ===');
-      await service.startService();
+    if (isRunning) {
+      print('=== Main App: Background service already running, stopping it first ===');
+      // หยุด background service ที่ทำงานอยู่ก่อน
+      service.invoke('stopService');
       
-      // รอให้ service เริ่มต้น
-      await Future.delayed(const Duration(seconds: 3));
+      // รอให้ service หยุดทำงาน
+      await Future.delayed(const Duration(seconds: 2));
       
-      final isRunningAfter = await service.isRunning();
-      print('=== Main App: Background service status after start ===');
-      print('Background service is running: $isRunningAfter');
+      final isStillRunning = await service.isRunning();
+      print('=== Main App: Background service still running after stop: $isStillRunning ===');
+      
+      if (isStillRunning) {
+        print('=== Main App: Force stopping background service ===');
+        // ถ้ายังทำงานอยู่ ให้ลองหยุดอีกครั้ง
+        service.invoke('stopService');
+        await Future.delayed(const Duration(seconds: 1));
+      }
     }
+    
+    // เริ่มต้น background service ใหม่
+    print('=== Main App: Starting new background service ===');
+    await service.startService();
+    
+    // รอให้ service เริ่มต้น
+    await Future.delayed(const Duration(seconds: 3));
+    
+    final isRunningAfter = await service.isRunning();
+    print('=== Main App: Background service status after start ===');
+    print('Background service is running: $isRunningAfter');
+    
   } catch (e) {
-    print('=== Main App: Error ensuring background service running ===');
+    print('=== Main App: Error managing background service ===');
     print('Error: $e');
   }
 }
@@ -569,6 +590,70 @@ class MyApp extends StatelessWidget {
         '/main': (context) => const MainNavigation(),
       },
     );
+  }
+}
+
+// เพิ่ม class สำหรับจัดการ lifecycle
+class AppLifecycleManager extends StatefulWidget {
+  final Widget child;
+  
+  const AppLifecycleManager({super.key, required this.child});
+  
+  @override
+  State<AppLifecycleManager> createState() => _AppLifecycleManagerState();
+}
+
+class _AppLifecycleManagerState extends State<AppLifecycleManager> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+  
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    print('=== AppLifecycleManager: App lifecycle state changed to: $state ===');
+    
+    if (state == AppLifecycleState.resumed) {
+      print('=== AppLifecycleManager: App resumed, checking background service ===');
+      _checkAndStopBackgroundService();
+    }
+  }
+  
+  Future<void> _checkAndStopBackgroundService() async {
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        final service = FlutterBackgroundService();
+        final isRunning = await service.isRunning();
+        
+        if (isRunning) {
+          print('=== AppLifecycleManager: Background service is running, stopping it ===');
+          service.invoke('stopService');
+          
+          // รอให้ service หยุดทำงาน
+          await Future.delayed(const Duration(seconds: 1));
+          
+          final isStillRunning = await service.isRunning();
+          print('=== AppLifecycleManager: Background service still running: $isStillRunning ===');
+        } else {
+          print('=== AppLifecycleManager: Background service is not running ===');
+        }
+      }
+    } catch (e) {
+      print('=== AppLifecycleManager: Error checking background service: $e ===');
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }
 

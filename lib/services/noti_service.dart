@@ -31,24 +31,43 @@ class NotiService {
     }
     
     try {
-      // Request permissions for Android 13 and above
-      final androidPlugin = notificationsPlugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      if (androidPlugin != null) {
-        final granted = await androidPlugin.requestNotificationsPermission();
-        print('NotiService: Android notification permission granted: $granted');
-      }
+      // ตรวจสอบว่าเป็น background service หรือไม่
+      bool isInBackgroundService = _isInBackgroundService();
+      print('NotiService: Is in background service: $isInBackgroundService');
+      
+      // ถ้าเป็น background service ให้ข้ามการขอ permission
+      if (!isInBackgroundService) {
+        // Request permissions for Android 13 and above
+        final androidPlugin = notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+        if (androidPlugin != null) {
+          try {
+            final granted = await androidPlugin.requestNotificationsPermission();
+            print('NotiService: Android notification permission granted: $granted');
+          } catch (e) {
+            print('NotiService: Error requesting Android permission: $e');
+            // ไม่ต้อง throw error ให้ทำงานต่อ
+          }
+        }
 
-      // Request permissions for iOS
-      final iOSPlugin = notificationsPlugin.resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>();
-      if (iOSPlugin != null) {
-        final granted = await iOSPlugin.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-        print('NotiService: iOS notification permission granted: $granted');
+        // Request permissions for iOS
+        final iOSPlugin = notificationsPlugin.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+        if (iOSPlugin != null) {
+          try {
+            final granted = await iOSPlugin.requestPermissions(
+              alert: true,
+              badge: true,
+              sound: true,
+            );
+            print('NotiService: iOS notification permission granted: $granted');
+          } catch (e) {
+            print('NotiService: Error requesting iOS permission: $e');
+            // ไม่ต้อง throw error ให้ทำงานต่อ
+          }
+        }
+      } else {
+        print('NotiService: Skipping permission request in background service');
       }
       
       // prepare android init settings
@@ -56,9 +75,9 @@ class NotiService {
       
       // prepare ios init settings
       const initSettingsIOS = DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
+        requestAlertPermission: false, // ไม่ขอ permission ใน background service
+        requestBadgePermission: false,
+        requestSoundPermission: false,
       );
 
       // prepare windows init settings
@@ -75,19 +94,24 @@ class NotiService {
       );
     
       // Create notification channel for Android
-      await notificationsPlugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(
-            const AndroidNotificationChannel(
-              androidChannelId,
-              androidChannelName,
-              description: androidChannelDescription,
-              importance: Importance.high,
-              enableVibration: true,
-              playSound: true,
-            ),
-          );
+      try {
+        await notificationsPlugin
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.createNotificationChannel(
+              const AndroidNotificationChannel(
+                androidChannelId,
+                androidChannelName,
+                description: androidChannelDescription,
+                importance: Importance.high,
+                enableVibration: true,
+                playSound: true,
+              ),
+            );
+      } catch (e) {
+        print('NotiService: Error creating notification channel: $e');
+        // ไม่ต้อง throw error ให้ทำงานต่อ
+      }
     
       await notificationsPlugin.initialize(
         initSetting,
@@ -102,7 +126,23 @@ class NotiService {
       print('NotiService: Initialization completed successfully');
     } catch (e) {
       print('NotiService: Error initializing notifications: $e');
-      rethrow;
+      // ไม่ต้อง rethrow error ให้ทำงานต่อ
+      // rethrow;
+    }
+  }
+
+  /// ตรวจสอบว่าเป็น background service หรือไม่
+  bool _isInBackgroundService() {
+    try {
+      final stackTrace = StackTrace.current.toString();
+      return stackTrace.contains('flutter_background_service') || 
+             stackTrace.contains('BackgroundService') ||
+             stackTrace.contains('onStart') ||
+             stackTrace.contains('ServiceInstance') ||
+             stackTrace.contains('background_service');
+    } catch (e) {
+      print('NotiService: Error checking background service: $e');
+      return false;
     }
   }
 

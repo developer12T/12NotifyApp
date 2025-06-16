@@ -31,10 +31,10 @@ class UnifiedSocketService {
   final Set<String> _subscribedRooms = {};
   final Set<String> _subscribedDirectMessages = {};
 
-  /// เริ่มต้น UnifiedSocketService
+  /// Initialize service
   Future<void> initialize({String? userId}) async {
     if (_isInitialized) {
-      print('UnifiedSocketService: Already initialized');
+      print('=== UnifiedSocketService: Already initialized ===');
       return;
     }
 
@@ -44,7 +44,15 @@ class UnifiedSocketService {
       _currentUserId = userId;
       
       // เริ่มต้น NotiService
-      await _notiService.initNotification();
+      try {
+        await _notiService.initNotification();
+        print('=== UnifiedSocketService: NotiService initialized successfully ===');
+      } catch (e) {
+        print('=== UnifiedSocketService: NotiService initialization failed ===');
+        print('Error: $e');
+        print('=== UnifiedSocketService: Continuing without NotiService ===');
+        // ไม่ต้อง rethrow ให้ทำงานต่อ
+      }
       
       // ตั้งค่า connection listeners
       _setupConnectionListeners();
@@ -54,7 +62,8 @@ class UnifiedSocketService {
     } catch (e) {
       print('=== UnifiedSocketService: Initialization error ===');
       print('Error: $e');
-      rethrow;
+      // ไม่ต้อง rethrow ให้ทำงานต่อ
+      // rethrow;
     }
   }
 
