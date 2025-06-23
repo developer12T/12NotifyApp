@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" 
+           Name="12Chat" 
+           Language="1033" 
+           Version="1.0.1.0" 
+           Manufacturer="12Trading" 
+           UpgradeCode="12345678-1234-1234-1234-123456789012">
+    
+    <Package InstallerVersion="200" 
+             Compressed="yes" 
+             InstallScope="perMachine" 
+             Description="12Chat Application Installer"
+             Comments="12Chat v1.0.1 by 12Trading" />
+    
+    <MajorUpgrade DowngradeErrorMessage="A newer version of 12Chat is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    
+    <!-- Icon for Add/Remove Programs -->
+    <Icon Id="AppIcon" SourceFile="assets\icon\app_icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    
+    <!-- Publisher URL -->
+    <Property Id="ARPURLINFOABOUT" Value="https://www.f-plus.co.th/th/index.php" />
+    
+    <!-- Features -->
+    <Feature Id="ProductFeature" Title="12Chat Application" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="ApplicationShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+    
+    <!-- UI -->
+    <UIRef Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    
+    <!-- Custom actions for desktop shortcut -->
+    <Property Id="CREATEDESKTOPSHORTCUT" Value="0" />
+    
+  </Product>
+
+  <!-- Directory structure -->
+  <Fragment>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="12Chat" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="12Chat"/>
+      </Directory>
+      <Directory Id="DesktopFolder" Name="Desktop" />
+    </Directory>
+  </Fragment>
+
+  <!-- Components -->
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      
+      <!-- Main executable with rename -->
+      <Component Id="MainExecutable" Guid="*">
+        <File Id="MainExe" 
+              Source="build\windows\x64\runner\Release\NotiOneTwo.exe" 
+              Name="12_notify_app.exe" 
+              KeyPath="yes" />
+      </Component>
+      
+      <!-- Application icon -->
+      <Component Id="AppIconFile" Guid="*">
+        <File Id="IconFile" 
+              Source="assets\icon\app_icon.ico" 
+              Name="app_icon.ico" />
+      </Component>
+      
+      <!-- Flutter runtime files (DLLs and data) -->
+      <Component Id="FlutterRuntime" Guid="*">
+        <File Id="FlutterWindowsDll" Source="build\windows\x64\runner\Release\flutter_windows.dll" />
+      </Component>
+      
+      <!-- Data folder -->
+      <Component Id="DataFolder" Guid="*">
+        <CreateFolder />
+        <File Id="DataFiles" Source="build\windows\x64\runner\Release\data\*" />
+      </Component>
+      
+      <!-- Additional DLL files that might be present -->
+      <Component Id="AdditionalDlls" Guid="*">
+        <CreateFolder />
+        <!-- Add other DLL files as needed -->
+        <!-- Example: -->
+        <!-- <File Id="SomeDll" Source="build\windows\x64\runner\Release\some_library.dll" /> -->
+      </Component>
+      
+    </ComponentGroup>
+    
+    <!-- Start Menu Shortcut -->
+    <Component Id="ApplicationShortcut" Directory="ApplicationProgramsFolder" Guid="*">
+      <Shortcut Id="ApplicationStartMenuShortcut"
+                Name="12Chat"
+                Description="12Chat Application"
+                Target="[INSTALLFOLDER]12_notify_app.exe"
+                Icon="AppIcon"
+                WorkingDirectory="INSTALLFOLDER"/>
+      <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+      <RegistryValue Root="HKCU" 
+                     Key="Software\12Trading\12Chat" 
+                     Name="installed" 
+                     Type="integer" 
+                     Value="1" 
+                     KeyPath="yes"/>
+    </Component>
+    
+    <!-- Desktop Shortcut (Optional) -->
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="*">
+      <Condition>CREATEDESKTOPSHORTCUT = 1</Condition>
+      <Shortcut Id="ApplicationDesktopShortcut"
+                Name="12Chat"
+                Description="12Chat Application"
+                Target="[INSTALLFOLDER]12_notify_app.exe"
+                Icon="AppIcon"
+                WorkingDirectory="INSTALLFOLDER"/>
+      <RegistryValue Root="HKCU" 
+                     Key="Software\12Trading\12Chat" 
+                     Name="desktop_shortcut" 
+                     Type="integer" 
+                     Value="1" 
+                     KeyPath="yes"/>
+    </Component>
+    
+  </Fragment>
+  
+</Wix>

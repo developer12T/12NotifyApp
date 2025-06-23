@@ -713,4 +713,21 @@ class SocketService {
       print('Error: $e');
     }
   }
+
+  void handleConnect(dynamic data) {
+    print('Socket connected: ${socket.id}');
+    _isSocketSetup = true;
+
+    // Resubscribe to announcements if previously subscribed
+    if (_isAnnouncementSubscribed) {
+      subscribeToAnnouncements();
+    }
+    // Re-subscribe to other necessary events upon reconnection
+  }
+
+  void refreshBackgroundSubscriptions() {
+    print('=== SocketService: Refreshing background subscriptions ===');
+    subscribeToAnnouncements();
+    subscribeToAllNotifications();
+  }
 } 

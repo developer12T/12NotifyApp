@@ -16,8 +16,6 @@
 
     <!-- สำหรับ background service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
     <!-- สำหรับ network state -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -43,7 +41,6 @@
         <!-- Fixed background service with tools:replace -->
         <service 
             android:name="id.flutter.flutter_background_service.BackgroundService" 
-            android:foregroundServiceType="dataSync|specialUse"
             android:exported="false"
             android:enabled="true"
             tools:replace="android:exported" />

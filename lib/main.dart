@@ -85,19 +85,19 @@ Future<void> initializeService() async {
   final service = FlutterBackgroundService();
   
   await service.configure(
-    iosConfiguration: IosConfiguration(
-      autoStart: false, // เปลี่ยนเป็น false เพื่อไม่ให้ autoStart
-      onForeground: onStart,
-      onBackground: onIosBackground,
-    ),
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
-      autoStart: false, // เปลี่ยนเป็น false เพื่อไม่ให้ autoStart
-      isForegroundMode: false, // เปลี่ยนเป็น false เพื่อไม่ให้เป็น foreground service
+      autoStart: true,
+      isForegroundMode: true,
       notificationChannelId: 'socket_service_channel',
-      initialNotificationTitle: '12Chat Background Service',
-      initialNotificationContent: 'กำลังทำงานในเบื้องหลัง',
+      initialNotificationTitle: '12Chat Service',
+      initialNotificationContent: 'Connecting to server...',
       foregroundServiceNotificationId: 888,
+    ),
+    iosConfiguration: IosConfiguration(
+      autoStart: true,
+      onForeground: onStart,
+      onBackground: onIosBackground,
     ),
   );
 }
@@ -116,14 +116,14 @@ Future<void> _createServiceNotificationChannel() async {
         const AndroidNotificationChannel(
           'socket_service_channel',
           '12Chat Background Service',
-          description: 'ช่องทางการแจ้งเตือนสำหรับ Background Service',
-          importance: Importance.low, // ใช้ low สำหรับ background service
+          description: 'Used for keeping the app connection active.',
+          importance: Importance.low,
           enableVibration: false,
           playSound: false,
           showBadge: false,
         ),
       );
-      print('Background service notification channel created');
+      print('Background service notification channel created with low importance');
     }
   }
 }
