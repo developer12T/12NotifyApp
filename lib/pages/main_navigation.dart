@@ -10,10 +10,10 @@ import 'profile_page.dart';
 import '../services/api_service.dart';
 import '../components/side_navigation.dart';
 import '../services/notification_service.dart';
+import '../services/noti_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'test_notification_page.dart';
-import 'test_case_page.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
+
+
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({Key? key}) : super(key: key);
@@ -405,6 +405,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     final isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
     return Scaffold(
+      backgroundColor: Colors.white, // เปลี่ยนสีพื้นหลังของแอปเป็นขาวล้วน
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
@@ -442,97 +443,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
                 ),
               ],
             ),
-            actions: [
-              IconButton(
-                icon: Icon(
-                  Icons.notifications,
-                  color: _selectedIndex == 3 ? Colors.white : Colors.black,
-                ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TestNotificationPage(
-                        apiService: _apiService,
-                      ),
-                    ),
-                  );
-                },
-                tooltip: 'ทดสอบการแจ้งเตือน',
-              ),
-              IconButton(
-                icon: Icon(
-                  Icons.settings_system_daydream,
-                  color: _selectedIndex == 3 ? Colors.white : Colors.black,
-                ),
-                onPressed: () async {
-                  // ทดสอบ background notification
-                  print('=== Testing Background Notification ===');
-                  try {
-                    final service = FlutterBackgroundService();
-                    final isRunning = await service.isRunning();
-                    print('Background service is running: $isRunning');
-                    
-                    if (isRunning) {
-                      service.invoke('showNotification', {
-                        'title': 'ทดสอบจากแอปหลัก',
-                        'body': 'นี่คือการทดสอบการแจ้งเตือนจาก background service',
-                        'timestamp': DateTime.now().toIso8601String(),
-                      });
-                      print('Background notification test sent');
-                      
-                      // แสดง snackbar
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('ส่งคำสั่งทดสอบ background notification แล้ว'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      }
-                    } else {
-                      print('Background service is not running');
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Background service ไม่ได้ทำงาน'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                  } catch (e) {
-                    print('Error testing background notification: $e');
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('เกิดข้อผิดพลาด: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
-                },
-                tooltip: 'ทดสอบ Background Notification',
-              ),
-              IconButton(
-                icon: Icon(
-                  Icons.checklist,
-                  color: _selectedIndex == 3 ? Colors.white : Colors.black,
-                ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TestCasePage(
-                        apiService: _apiService,
-                      ),
-                    ),
-                  );
-                },
-                tooltip: 'Test Cases',
-              ),
-            ],
+            actions: [],
           ),
         ),
       ),
@@ -602,7 +513,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
             type: BottomNavigationBarType.fixed,
             backgroundColor: Colors.white,
             elevation: 0,
-            selectedItemColor: const Color(0xFF004B93),
+            selectedItemColor: const Color(0xFF00569D),
             unselectedItemColor: Colors.black,
             iconSize: 26,
             selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),

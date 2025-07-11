@@ -17,12 +17,16 @@ class ApiService {
   String? userId;
   static String get baseUrl =>
       // 'http://127.0.0.1:3000';
-      'https://apps.onetwotrading.co.th/12chat';
+      // 'https://apps.onetwotrading.co.th/12chat';
+      'http://192.168.44.106:8006';
   String? _token;
   bool _isInitialized = false;
 
   // Getter สำหรับ socket เพื่อความเข้ากันได้กับโค้ดเดิม
   IO.Socket? get socket => _unifiedSocketService.socket;
+  
+  // Getter สำหรับ UnifiedSocketService
+  UnifiedSocketService get unifiedSocketService => _unifiedSocketService;
   
   // Setter สำหรับ socket เพื่อความเข้ากันได้กับโค้ดเดิม
   set socket(IO.Socket? value) {
@@ -158,14 +162,15 @@ class ApiService {
     }
   }
 
-  void connect() {
-    socket = IO.io('https://apps.onetwotrading.co.th/', <String, dynamic>{
-      'transports': ['websocket'],
-      'autoConnect': true,
-      'path': '/chatio/socket.io/',
-      'auth': {'token': _token},
-    });
-  }
+  // Old connect method - deprecated, using UnifiedSocketService instead
+  // void connect() {
+  //   socket = IO.io(baseUrl, <String, dynamic>{
+  //     'transports': ['websocket'],
+  //     'autoConnect': true,
+  //     'path': '/socket.io/',
+  //     'auth': {'token': _token},
+  //   });
+  // }
 
   Future<void> joinRoom(String roomId) async {
     print('=== Joining Room ===');
@@ -792,6 +797,12 @@ class ApiService {
     } else {
       print('Socket already initialized');
     }
+  }
+
+  /// Force reconnection of socket
+  Future<void> forceReconnect() async {
+    print('=== ApiService: Force reconnecting socket ===');
+    await _unifiedSocketService.forceReconnect();
   }
 
   // Add method to get user information

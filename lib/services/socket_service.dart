@@ -4,7 +4,7 @@ import 'noti_service.dart';
 import 'unified_socket_service.dart';
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class SocketService {
@@ -154,15 +154,7 @@ class SocketService {
       print('Stack trace contains background_service: ${stackTrace.contains('background_service')}');
       print('Is background service: $isBackground');
       
-      // เพิ่มการตรวจสอบจาก FlutterBackgroundService
-      try {
-        final service = FlutterBackgroundService();
-        service.isRunning().then((isRunning) {
-          print('=== SocketService: FlutterBackgroundService.isRunning(): $isRunning ===');
-        });
-      } catch (e) {
-        print('=== SocketService: Error checking FlutterBackgroundService: $e ===');
-      }
+
       
       return isBackground;
     } catch (e) {
@@ -538,9 +530,10 @@ class SocketService {
           });
         } else {
           // ใช้ NotiService ปกติ
+          final shortMessage = message.length > 50 ? message.substring(0, 50) + '...' : message;
           _notiService.showNotification(
-            title: 'ข้อความใหม่ในกลุ่ม $roomName',
-            body: '$senderName: $message',
+            title: 'กลุ่ม: $roomName',
+            body: 'ข้อความ: $shortMessage',
             payload: json.encode({
               'type': 'group_chat',
               'roomId': roomId,
@@ -599,7 +592,7 @@ class SocketService {
           });
         } else {
           // ใช้ NotiService ปกติ
-          final shortMessage = message.length > 50 ? '${message.substring(0, 50)}...' : message;
+          final shortMessage = message.length > 50 ? message.substring(0, 50) + '...' : message;
           _notiService.showNotification(
             title: 'ข้อความใหม่จาก $senderName',
             body: shortMessage,
@@ -627,27 +620,8 @@ class SocketService {
       print('Command: $command');
       print('Data: $data');
       
-      // ใช้ FlutterBackgroundService เพื่อส่งคำสั่ง
-      final service = FlutterBackgroundService();
-      
-      // ตรวจสอบว่า background service ทำงานอยู่หรือไม่
-      service.isRunning().then((isRunning) {
-        print('=== SocketService: Background service is running: $isRunning ===');
-        
-        if (isRunning) {
-          service.invoke(command, data);
-          print('=== SocketService: Command sent to background service successfully ===');
-        } else {
-          print('=== SocketService: Background service not running, using fallback ===');
-          // ใช้ fallback method แทน
-          _showCommandFallbackNotification(data, command);
-        }
-      }).catchError((error) {
-        print('=== SocketService: Error checking background service status ===');
-        print('Error: $error');
-        print('=== SocketService: Using fallback due to error ===');
-        _showCommandFallbackNotification(data, command);
-      });
+      // ใช้ fallback method แทน เนื่องจากไม่ใช้ flutter_background_service แล้ว
+      _showCommandFallbackNotification(data, command);
       
     } catch (e) {
       print('=== SocketService: Error sending to background service ===');
@@ -667,11 +641,10 @@ class SocketService {
       
       if (command == 'showGroupChatNotification') {
         final roomName = data['roomName']?.toString() ?? 'กลุ่ม';
-        final senderName = data['senderName']?.toString() ?? 'ผู้ใช้';
         final message = data['message']?.toString() ?? 'ข้อความใหม่';
-        
-        title = 'ข้อความใหม่ในกลุ่ม $roomName';
-        body = '$senderName: $message';
+        final shortMessage = message.length > 50 ? message.substring(0, 50) + '...' : message;
+        title = 'กลุ่ม: $roomName';
+        body = 'ข้อความ: $shortMessage';
       } else if (command == 'showDirectMessageNotification') {
         final senderName = data['senderName']?.toString() ?? 'ผู้ใช้';
         final message = data['message']?.toString() ?? 'ข้อความใหม่';

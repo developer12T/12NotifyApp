@@ -33,7 +33,8 @@ class ConnectionManager {
     
     final defaultOptions = <String, dynamic>{
       'transports': ['websocket', 'polling'],
-      'path': '/chatio/socket.io/',
+      'path': '/socket.io/',
+      // 'path': '/chatio/socket.io/',
       'reconnection': true,
       'reconnectionAttempts': _maxReconnectAttempts,
       'reconnectionDelay': _baseReconnectDelay.inMilliseconds,

@@ -41,10 +41,10 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
     const Color(0xFFE91E63), // Pink
     const Color(0xFF4CAF50), // Green
     const Color(0xFFFF9800), // Orange
-    const Color(0xFF9C27B0), // Purple
+    const Color(0xFF00569D), // Blue (replaced Purple)
     const Color(0xFF00BCD4), // Cyan
     const Color(0xFFF44336), // Red
-    const Color(0xFF673AB7), // Deep Purple
+    const Color(0xFF004A85), // Dark Blue (replaced Deep Purple)
   ];
 
   @override
@@ -666,7 +666,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
                                                           color: role == 'bot'
                                                               ? Colors.red.withOpacity(0.1)
                                                               : role == 'owner'
-                                                                  ? Colors.purple.withOpacity(0.1)
+                                                                  ? const Color(0xFF00569D).withOpacity(0.1)
                                                                   : isAdmin
                                                                       ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
                                                                       : Colors.grey.withOpacity(0.1),
@@ -684,7 +684,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
                                                             color: role == 'bot'
                                                                 ? Colors.red
                                                                 : role == 'owner'
-                                                                    ? Colors.purple
+                                                                    ? const Color(0xFF00569D)
                                                                     : isAdmin
                                                                         ? Theme.of(context).colorScheme.primary
                                                                         : Colors.grey.shade700,
@@ -781,11 +781,11 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
                                                         vertical: 4,
                                                       ),
                                                       decoration: BoxDecoration(
-                                                        color: role == 'owner'
-                                                            ? Colors.purple.withOpacity(0.1)
-                                                            : isAdmin
-                                                                ? theme.colorScheme.primary.withOpacity(0.1)
-                                                                : Colors.grey.withOpacity(0.1),
+                                                                                                              color: role == 'owner'
+                                                          ? const Color(0xFF00569D).withOpacity(0.1)
+                                                          : isAdmin
+                                                              ? theme.colorScheme.primary.withOpacity(0.1)
+                                                              : Colors.grey.withOpacity(0.1),
                                                         borderRadius: BorderRadius.circular(12),
                                                       ),
                                                       child: Text(
@@ -796,7 +796,7 @@ class _GroupSettingsPageState extends State<GroupSettingsPage> with SingleTicker
                                                                 : 'สมาชิก',
                                                         style: TextStyle(
                                                           color: role == 'owner'
-                                                              ? Colors.purple
+                                                              ? const Color(0xFF00569D)
                                                               : isAdmin
                                                                   ? theme.colorScheme.primary
                                                                   : Colors.grey.shade700,

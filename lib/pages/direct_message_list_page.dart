@@ -908,10 +908,10 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: Colors.white,
       floatingActionButton: FloatingActionButton(
         onPressed: _startNewChat,
-        backgroundColor: theme.colorScheme.primary,
+        backgroundColor: const Color(0xFF00569D),
         child: const Icon(Icons.person_add_alt_1, color: Colors.white),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(32),
@@ -927,7 +927,7 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
                     children: [
                       CircularProgressIndicator(
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          theme.colorScheme.primary,
+                          const Color(0xFF00569D),
                         ),
                       ),
                       const SizedBox(height: 16),

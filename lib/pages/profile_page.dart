@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'login_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -309,10 +310,10 @@ class _ProfilePageState extends State<ProfilePage> {
       
       // นำผู้ใช้กลับไปหน้า login
       if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/login',
-          (Route<dynamic> route) => false,
-        );
+        Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => LoginPage()),
+            );
       }
     } catch (e) {
       print('Error during logout: $e');

@@ -1,10 +1,12 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:async';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'connection_manager.dart';
 import 'retry_manager.dart';
 import 'noti_service.dart';
 import 'memory_manager.dart';
+import 'api_service.dart';
 
 /// UnifiedSocketService สำหรับจัดการ Socket ทั้งหมดในที่เดียว
 class UnifiedSocketService {
@@ -22,14 +24,26 @@ class UnifiedSocketService {
   final Map<String, List<Function(dynamic)>> _connectionListeners = {};
   
   // Configuration
-  static const String _baseUrl = 'https://apps.onetwotrading.co.th/';
-  static const String _socketPath = '/chatio/socket.io/';
+  static String get _baseUrl => ApiService.baseUrl;
+  static const String _socketPath = '/socket.io/';
   
   // State tracking
   bool _isInitialized = false;
   String? _currentUserId;
   final Set<String> _subscribedRooms = {};
   final Set<String> _subscribedDirectMessages = {};
+
+  /// Check if server is reachable
+  Future<bool> _isServerReachable() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/api/health'));
+      return response.statusCode == 200;
+    } catch (e) {
+      print('=== UnifiedSocketService: Server not reachable ===');
+      print('Error: $e');
+      return false;
+    }
+  }
 
   /// Initialize service
   Future<void> initialize({String? userId}) async {
@@ -39,6 +53,8 @@ class UnifiedSocketService {
     }
 
     print('=== UnifiedSocketService: Initializing ===');
+    print('Base URL: $_baseUrl');
+    print('User ID: $userId');
     
     try {
       _currentUserId = userId;
@@ -56,6 +72,41 @@ class UnifiedSocketService {
       
       // ตั้งค่า connection listeners
       _setupConnectionListeners();
+      
+      // ตรวจสอบว่า server สามารถเข้าถึงได้หรือไม่
+      print('=== UnifiedSocketService: Checking server reachability ===');
+      final isServerReachable = await _isServerReachable();
+      if (!isServerReachable) {
+        print('=== UnifiedSocketService: Server not reachable, skipping socket connection ===');
+        _isInitialized = true;
+        return;
+      }
+      
+      // พยายามเชื่อมต่อ socket
+      print('=== UnifiedSocketService: Attempting to connect socket ===');
+      final socket = _connectionManager.getConnection(_baseUrl);
+      if (!socket.connected) {
+        print('=== UnifiedSocketService: Socket not connected, attempting to connect ===');
+        socket.connect();
+        
+        // รอให้เชื่อมต่อสำเร็จ
+        int attempts = 0;
+        while (!socket.connected && attempts < 10) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          attempts++;
+          print('=== UnifiedSocketService: Connection attempt $attempts, connected: ${socket.connected} ===');
+        }
+        
+        if (socket.connected) {
+          print('=== UnifiedSocketService: Socket connected successfully ===');
+          print('Socket ID: ${socket.id}');
+        } else {
+          print('=== UnifiedSocketService: Failed to connect socket after $attempts attempts ===');
+        }
+      } else {
+        print('=== UnifiedSocketService: Socket already connected ===');
+        print('Socket ID: ${socket.id}');
+      }
       
       _isInitialized = true;
       print('=== UnifiedSocketService: Initialization complete ===');
@@ -115,7 +166,13 @@ class UnifiedSocketService {
 
   /// ดึง Socket instance
   IO.Socket get socket {
-    return _connectionManager.getConnection(_baseUrl);
+    print('=== UnifiedSocketService: Getting socket ===');
+    print('Base URL: $_baseUrl');
+    print('Socket path: $_socketPath');
+    final socket = _connectionManager.getConnection(_baseUrl);
+    print('Socket connected: ${socket.connected}');
+    print('Socket ID: ${socket.id}');
+    return socket;
   }
 
   /// ตรวจสอบสถานะการเชื่อมต่อ
@@ -469,17 +526,7 @@ class UnifiedSocketService {
   void dispose() {
     print('=== UnifiedSocketService: Disposing ===');
     
-    // ตรวจสอบว่าเป็น background service หรือไม่
-    try {
-      final stackTrace = StackTrace.current.toString();
-      if (stackTrace.contains('flutter_background_service') || 
-          stackTrace.contains('BackgroundService')) {
-        print('=== UnifiedSocketService: Background service detected, skipping dispose ===');
-        return;
-      }
-    } catch (e) {
-      print('Error checking background service: $e');
-    }
+
     
     // ลบ listeners ทั้งหมด
     _messageListeners.clear();
@@ -508,4 +555,35 @@ class UnifiedSocketService {
 
   /// ดึงรายการแชทส่วนตัวที่ subscribe อยู่
   Set<String> get subscribedDirectMessages => Set.from(_subscribedDirectMessages);
+
+  /// Force reconnection
+  Future<void> forceReconnect() async {
+    print('=== UnifiedSocketService: Force reconnecting ===');
+    
+    // ปิดการเชื่อมต่อเก่า
+    _connectionManager.disconnect(_baseUrl);
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    // สร้างการเชื่อมต่อใหม่
+    final socket = _connectionManager.getConnection(_baseUrl);
+    socket.connect();
+    
+    // รอให้เชื่อมต่อสำเร็จ
+    int attempts = 0;
+    while (!socket.connected && attempts < 10) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      attempts++;
+      print('=== UnifiedSocketService: Reconnection attempt $attempts, connected: ${socket.connected} ===');
+    }
+    
+    if (socket.connected) {
+      print('=== UnifiedSocketService: Reconnection successful ===');
+      print('Socket ID: ${socket.id}');
+      
+      // Resubscribe to all rooms and direct messages
+      _resubscribeAll();
+    } else {
+      print('=== UnifiedSocketService: Reconnection failed after $attempts attempts ===');
+    }
+  }
 } 

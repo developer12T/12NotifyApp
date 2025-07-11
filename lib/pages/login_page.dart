@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import 'package:marquee/marquee.dart';
 import 'loading_page.dart';
+import 'main_navigation.dart';
+import '../services/fcm_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -42,26 +44,33 @@ class _LoginPageState extends State<LoginPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final prefs = await SharedPreferences.getInstance();
-        // เก็บข้อมูลผู้ใช้ทั้งหมด
+        // เก็บข้อมูลผู้ใช้ทั้งหมด (data['data'] เป็น object ไม่ใช่ list)
         final userData = {
-          'employeeID': data['data'][0]['employeeID'],
-          'userName': data['data'][0]['userName'],
-          'firstName': data['data'][0]['firstName'],
-          'lastName': data['data'][0]['lastName'],
-          'fullName': data['data'][0]['fullName'],
-          'fullNameThai': data['data'][0]['fullNameThai'],
-          'mail': data['data'][0]['mail'],
-          'imgUrl': data['data'][0]['imgUrl'],
-          'positon': data['data'][0]['positon'],
-          'department': data['data'][0]['department'],
-          'company': data['data'][0]['company'],
-          'status': data['data'][0]['status']
+          'employeeID': data['data']['employeeID'],
+          'userName': data['data']['userName'],
+          'firstName': data['data']['firstName'],
+          'lastName': data['data']['lastName'],
+          'fullName': data['data']['fullName'],
+          'fullNameThai': data['data']['fullNameThai'],
+          'mail': data['data']['mail'],
+          'imgUrl': data['data']['imgUrl'],
+          'positon': data['data']['positon'],
+          'department': data['data']['department'],
+          'company': data['data']['company'],
+          'status': data['data']['status']
         };
         
         await prefs.setString('user', jsonEncode(userData));
 
+        // Register FCM token after login
+        await FCMService.registerFCMToken();
+        FCMService.listenFCMTokenRefresh();
+
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/main');
+          Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (context) => MainNavigation()),
+          );
         }
       } else {
         final error = jsonDecode(response.body);

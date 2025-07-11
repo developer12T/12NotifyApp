@@ -481,6 +481,7 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
       builder: (context, constraints) {
         final isWide = constraints.maxWidth > 600;
         return Scaffold(
+          backgroundColor: Colors.white, // เพิ่มบรรทัดนี้เพื่อให้พื้นหลังเป็นสีขาวล้วน
           body: RefreshIndicator(
             onRefresh: _onRefresh,
             child: GridView.builder(
@@ -515,7 +516,7 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                       side: isNew 
-                        ? BorderSide(color: Theme.of(context).primaryColor.withOpacity(0.5), width: 1)
+                        ? BorderSide(color: const Color(0xFF00569D).withOpacity(0.5), width: 1)
                         : BorderSide.none,
                     ),
                     child: InkWell(
@@ -547,7 +548,7 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                                         announcement['title'],
                                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                           fontWeight: FontWeight.w500,
-                                          color: Theme.of(context).primaryColor,
+                                          color: const Color(0xFF00569D),
                                         ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
@@ -567,13 +568,13 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                     decoration: BoxDecoration(
-                                      color: Theme.of(context).primaryColor.withOpacity(0.1),
+                                      color: const Color(0xFF00569D).withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(
                                       'ใหม่',
                                       style: TextStyle(
-                                        color: Theme.of(context).primaryColor,
+                                        color: const Color(0xFF00569D),
                                         fontSize: 10,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -647,56 +648,6 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
               },
             ),
           ),
-          // floatingActionButton: FloatingActionButton.extended(
-          //   onPressed: () {
-          //     showModalBottomSheet(
-          //       context: context,
-          //       builder: (context) => Container(
-          //         padding: const EdgeInsets.all(16),
-          //         child: Column(
-          //           mainAxisSize: MainAxisSize.min,
-          //           children: [
-          //             const Text(
-          //               'ทดสอบการแจ้งเตือน',
-          //               style: TextStyle(
-          //                 fontSize: 18,
-          //                 fontWeight: FontWeight.bold,
-          //               ),
-          //             ),
-          //             const SizedBox(height: 16),
-          //             Row(
-          //               children: [
-          //                 Expanded(
-          //                   child: ElevatedButton.icon(
-          //                     onPressed: () {
-          //                       Navigator.pop(context);
-          //                       _testNotification();
-          //                     },
-          //                     icon: const Icon(Icons.notifications),
-          //                     label: const Text('ทดสอบ NotiService'),
-          //                   ),
-          //                 ),
-          //                 const SizedBox(width: 8),
-          //                 Expanded(
-          //                   child: ElevatedButton.icon(
-          //                     onPressed: () {
-          //                       Navigator.pop(context);
-          //                       _testSocketNotification();
-          //                     },
-          //                     icon: const Icon(Icons.wifi),
-          //                     label: const Text('ทดสอบ Socket'),
-          //                   ),
-          //                 ),
-          //               ],
-          //             ),
-          //           ],
-          //         ),
-          //       ),
-          //     );
-          //   },
-          //   icon: const Icon(Icons.notifications),
-          //   label: const Text('ทดสอบ'),
-          // ),
         );
       },
     );

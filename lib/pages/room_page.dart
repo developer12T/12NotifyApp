@@ -152,9 +152,10 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
   void _handleAppResume() async {
     if (!_isDisposed && mounted) {
       // Reconnect socket if needed
-      if (widget.apiService.socket?.connected != true) {
+      final unifiedSocket = widget.apiService.unifiedSocketService;
+      if (!unifiedSocket.isConnected) {
         print('Socket not connected, attempting to reconnect...');
-        await widget.apiService.ensureInitialized();
+        await widget.apiService.forceReconnect();
       }
       
       // Refresh data
@@ -200,24 +201,25 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
 
   /// Refresh socket subscriptions when returning to the page
   void _refreshSocketSubscriptions() {
-    if (_currentUserEmployeeId != null && widget.apiService.socket?.connected == true) {
+    final unifiedSocket = widget.apiService.unifiedSocketService;
+    if (_currentUserEmployeeId != null && unifiedSocket.isConnected) {
       print('Refreshing chat list subscriptions');
       
       // Use a delay to ensure proper cleanup and subscription restoration
       Future.delayed(const Duration(milliseconds: 300), () {
-        if (widget.apiService.socket?.connected == true) {
+        if (unifiedSocket.isConnected) {
           widget.apiService.refreshListPageSubscriptions();
         } else {
           print('❌ Socket not connected during refresh, attempting reconnection...');
-          widget.apiService.ensureInitialized().then((_) {
-            if (widget.apiService.socket?.connected == true) {
+          widget.apiService.forceReconnect().then((_) {
+            if (unifiedSocket.isConnected) {
               widget.apiService.refreshListPageSubscriptions();
             }
           });
         }
       });
     } else {
-      print('Cannot refresh subscriptions: Employee ID: $_currentUserEmployeeId, Socket connected: ${widget.apiService.socket?.connected}');
+      print('Cannot refresh subscriptions: Employee ID: $_currentUserEmployeeId, Socket connected: ${unifiedSocket.isConnected}');
     }
   }
 
@@ -234,7 +236,8 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
       print('Current chat room ID after leaving: "$_currentChatRoomId"');
       
       // Immediately refresh socket subscriptions to ensure notifications work
-      if (_currentUserEmployeeId != null && widget.apiService.socket?.connected == true) {
+      final unifiedSocket = widget.apiService.unifiedSocketService;
+      if (_currentUserEmployeeId != null && unifiedSocket.isConnected) {
         print('Refreshing subscriptions after leaving chat room');
         
         // Add a small delay to ensure proper cleanup from chat page
@@ -258,7 +261,8 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
       print('Current chat room ID after entering: "$_currentChatRoomId"');
       
       // Ensure socket listeners are set up for all rooms when entering a room
-      if (_currentUserEmployeeId != null && widget.apiService.socket?.connected == true) {
+      final unifiedSocket = widget.apiService.unifiedSocketService;
+      if (_currentUserEmployeeId != null && unifiedSocket.isConnected) {
         print('Setting up socket listeners after entering chat room');
         _setupSocketListeners();
       }
@@ -269,7 +273,8 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
   void _refreshAllRoomSubscriptions() {
     print('=== Refreshing All Room Subscriptions ===');
     
-    if (_currentUserEmployeeId == null || widget.apiService.socket?.connected != true) {
+    final unifiedSocket = widget.apiService.unifiedSocketService;
+    if (_currentUserEmployeeId == null || !unifiedSocket.isConnected) {
       print('Cannot refresh subscriptions: User ID or socket not ready');
       return;
     }
@@ -278,14 +283,14 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
       // Re-join all rooms to ensure subscriptions are active
       for (final room in _chatRooms) {
         print('Re-joining room: ${room.id}');
-        widget.apiService.socket?.emit('joinRoom', {
+        unifiedSocket.socket.emit('joinRoom', {
           'roomId': room.id,
           'userId': _currentUserEmployeeId
         });
       }
       
       // Also re-subscribe to chat list updates
-      widget.apiService.socket?.emit('subscribeChatList', {
+      unifiedSocket.socket.emit('subscribeChatList', {
         'empId': _currentUserEmployeeId
       });
       
@@ -305,39 +310,41 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
   }
 
   void _setupSocketListeners() {
-    if (widget.apiService.socket == null) {
-      print('Socket is null, cannot setup listeners');
+    final unifiedSocket = widget.apiService.unifiedSocketService;
+    
+    if (!unifiedSocket.isInitialized) {
+      print('UnifiedSocketService not initialized, cannot setup listeners');
       return;
     }
 
     print('\n=== Setting up Socket Listeners ===');
-    print('Socket connected: ${widget.apiService.socket?.connected}');
-    print('Socket ID: ${widget.apiService.socket?.id}');
+    print('Socket connected: ${unifiedSocket.isConnected}');
+    print('Socket ID: ${unifiedSocket.socketId}');
     print('Current listeners setup: $_socketListenersSetup');
 
     // Remove any existing listeners first to prevent duplicates
     _removeSocketListeners();
 
     // Listen for socket connection status
-    widget.apiService.socket?.on('connect', (_) {
+    unifiedSocket.onConnection('connected', (event) {
       print('\n=== Socket Connected ===');
-      print('Socket ID: ${widget.apiService.socket?.id}');
+      print('Socket ID: ${unifiedSocket.socketId}');
       _subscribeToChatList();
     });
 
-    widget.apiService.socket?.on('disconnect', (_) {
+    unifiedSocket.onConnection('disconnected', (event) {
       print('\n=== Socket Disconnected ===');
       _socketListenersSetup = false;
     });
 
-    widget.apiService.socket?.on('connect_error', (error) {
+    unifiedSocket.onConnection('error', (event) {
       print('\n=== Socket Connection Error ===');
-      print('Error: $error');
+      print('Error: ${event['data']}');
       _socketListenersSetup = false;
     });
 
     // Listen for socket errors
-    widget.apiService.socket?.on('error', (error) {
+    unifiedSocket.socket.on('error', (error) {
       print('\n=== Socket Error ===');
       print('Error: $error');
       if (mounted) {
@@ -351,7 +358,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     });
 
     // Listen for messages read updates
-    widget.apiService.socket?.on('messagesRead', (data) {
+    unifiedSocket.socket.on('messagesRead', (data) {
       print('\n=== Messages Read Update ===');
       print('Data: $data');
       
@@ -364,13 +371,13 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     });
 
     // Listen for new messages - MAIN FIX HERE
-    widget.apiService.socket?.on('newMessage', (data) {
+    unifiedSocket.socket.on('newMessage', (data) {
       print('\n=== รับข้อความใหม่ ===');
       print('เป็นข้อความจากบอท: false');
       print('ข้อมูลทั้งหมด: $data');
       print('Data type: ${data.runtimeType}');
-      print('Socket connected: ${widget.apiService.socket?.connected}');
-      print('Socket ID: ${widget.apiService.socket?.id}');
+      print('Socket connected: ${unifiedSocket.isConnected}');
+      print('Socket ID: ${unifiedSocket.socketId}');
       print('Current chat room ID: "$_currentChatRoomId"');
 
       if (!mounted || _isDisposed) {
@@ -429,12 +436,12 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     });
 
     // Listen for new message notifications
-    widget.apiService.socket?.on('newMessageNotification', (data) {
+    unifiedSocket.socket.on('newMessageNotification', (data) {
       print('\n=== New Message Notification Received ===');
       print('Data: $data');
       print('Data type: ${data.runtimeType}');
-      print('Socket connected: ${widget.apiService.socket?.connected}');
-      print('Socket ID: ${widget.apiService.socket?.id}');
+      print('Socket connected: ${unifiedSocket.isConnected}');
+      print('Socket ID: ${unifiedSocket.socketId}');
 
       if (!mounted || _isDisposed) {
         print('Widget is not mounted or disposed, ignoring notification');
@@ -520,7 +527,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     });
 
     // Listen for all socket events for debugging
-    widget.apiService.socket?.onAny((eventName, data) {
+    unifiedSocket.socket.onAny((eventName, data) {
       print('\n=== Socket Event Received ===');
       print('Event name: $eventName');
       print('Event data: $data');
@@ -528,10 +535,10 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     });
 
     // Listen for chat list updates
-    widget.apiService.socket?.on('chatListUpdate', (data) {
+    unifiedSocket.socket.on('chatListUpdate', (data) {
       print('\n=== Received Chat List Update ===');
-      print('Socket connected: ${widget.apiService.socket?.connected}');
-      print('Socket ID: ${widget.apiService.socket?.id}');
+      print('Socket connected: ${unifiedSocket.isConnected}');
+      print('Socket ID: ${unifiedSocket.socketId}');
       print('Data: $data');
       
       if (data is Map && data['rooms'] is List && mounted) {
@@ -568,14 +575,15 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
 
   void _removeSocketListeners() {
     print('Removing existing socket listeners');
-    widget.apiService.socket?.off('newMessage');
-    widget.apiService.socket?.off('newMessageNotification');
-    widget.apiService.socket?.off('messagesRead');
-    widget.apiService.socket?.off('chatListUpdate');
-    widget.apiService.socket?.off('error');
-    widget.apiService.socket?.off('connect');
-    widget.apiService.socket?.off('disconnect');
-    widget.apiService.socket?.off('connect_error');
+    final unifiedSocket = widget.apiService.unifiedSocketService;
+    unifiedSocket.socket.off('newMessage');
+    unifiedSocket.socket.off('newMessageNotification');
+    unifiedSocket.socket.off('messagesRead');
+    unifiedSocket.socket.off('chatListUpdate');
+    unifiedSocket.socket.off('error');
+    unifiedSocket.socket.off('connect');
+    unifiedSocket.socket.off('disconnect');
+    unifiedSocket.socket.off('connect_error');
   }
 
   void _handleNewMessage(Map<String, dynamic> message) {
@@ -844,21 +852,21 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
 
   Future<void> _subscribeToChatList() async {
     print('\n=== Subscribing to Chat List ===');
-    print('Socket connected: ${widget.apiService.socket?.connected}');
-    print('Socket ID: ${widget.apiService.socket?.id}');
+    final unifiedSocket = widget.apiService.unifiedSocketService;
+    print('Socket connected: ${unifiedSocket.isConnected}');
+    print('Socket ID: ${unifiedSocket.socketId}');
     print('Employee ID: $_currentUserEmployeeId');
     
     // Check socket connection status
     _checkSocketConnection();
-    
-    if (_currentUserEmployeeId != null && widget.apiService.socket?.connected == true) {
+    if (_currentUserEmployeeId != null && unifiedSocket.isConnected) {
       print('Subscribing to chat list for employee: $_currentUserEmployeeId');
       
       // Add a small delay to ensure proper cleanup from previous subscriptions
       await Future.delayed(const Duration(milliseconds: 100));
       
       // Emit subscribe event
-      widget.apiService.socket?.emit('subscribeChatList', {
+      unifiedSocket.socket.emit('subscribeChatList', {
         'empId': _currentUserEmployeeId
       });
       print('Subscribe request sent');
@@ -867,25 +875,29 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
       _refreshAllRoomSubscriptions();
     } else {
       print('Cannot subscribe: socket not connected or employee ID is null');
-      print('Socket connected: ${widget.apiService.socket?.connected}');
+      print('Socket connected: ${unifiedSocket.isConnected}');
       print('Employee ID: $_currentUserEmployeeId');
     }
   }
 
   // Check socket connection
   void _checkSocketConnection() {
+    final unifiedSocket = widget.apiService.unifiedSocketService;
     print('=== Socket Connection Check ===');
-    print('Socket connected: ${widget.apiService.socket?.connected}');
-    print('Socket ID: ${widget.apiService.socket?.id}');
+    print('Socket connected: ${unifiedSocket.isConnected}');
+    print('Socket ID: ${unifiedSocket.socketId}');
     print('Current user ID: $_currentUserEmployeeId');
     print('Socket listeners setup: $_socketListenersSetup');
+    print('UnifiedSocket initialized: ${unifiedSocket.isInitialized}');
+    print('Base URL: ${ApiService.baseUrl}');
   }
 
   /// Ensure all rooms are joined for real-time updates
   void _ensureAllRoomsJoined() {
     print('=== Ensuring All Rooms Are Joined ===');
     
-    if (_currentUserEmployeeId == null || widget.apiService.socket?.connected != true) {
+    final unifiedSocket = widget.apiService.unifiedSocketService;
+    if (_currentUserEmployeeId == null || !unifiedSocket.isConnected) {
       print('Cannot join rooms: User ID or socket not ready');
       return;
     }
@@ -893,7 +905,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
     try {
       for (final room in _chatRooms) {
         print('Ensuring room is joined: ${room.id}');
-        widget.apiService.socket?.emit('joinRoom', {
+        unifiedSocket.socket.emit('joinRoom', {
           'roomId': room.id,
           'userId': _currentUserEmployeeId
         });
@@ -914,6 +926,7 @@ class _RoomPageState extends State<RoomPage> with AutomaticKeepAliveClientMixin,
         return true;
       },
       child: Scaffold(
+        backgroundColor: Colors.white,
         body: RefreshIndicator(
           onRefresh: _refreshData,
           child: _isLoading
@@ -1162,7 +1175,8 @@ Future<void> _handleRoomTap(ChatRoom room) async {
           await _refreshData();
           
           // Also refresh socket subscriptions
-          if (_currentUserEmployeeId != null && widget.apiService.socket?.connected == true) {
+          final unifiedSocket = widget.apiService.unifiedSocketService;
+          if (_currentUserEmployeeId != null && unifiedSocket.isConnected) {
             print('Refreshing socket subscriptions after returning from chat');
             _subscribeToChatList();
             _refreshAllRoomSubscriptions();

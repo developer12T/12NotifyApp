@@ -15,6 +15,7 @@ import 'web_view_page.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'group_members_page.dart';
 
 class ChatPage extends StatefulWidget {
   final String roomId;
@@ -1732,47 +1733,43 @@ class _ChatPageState extends State<ChatPage> {
           onPressed: () => Navigator.pop(context, true),
         ),
         actions: [
-          // แสดงปุ่มตั้งค่ากลุ่มเฉพาะ owner เท่านั้น
-          if (isOwner)
-            Container(
-              margin: const EdgeInsets.only(right: 8),
-              child: IconButton(
-                icon: Container(
-                  padding: const EdgeInsets.all(8),
-                  child: const Icon(Icons.menu, size: 26),
-                ),
-                tooltip: 'ตั้งค่ากลุ่ม',
-                onPressed: () async {
-                  // ตรวจสอบสิทธิ์อีกครั้งก่อนเปิดหน้าตั้งค่า
-                  if (!isOwner) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('คุณไม่มีสิทธิ์เข้าถึงการตั้งค่ากลุ่ม'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                    return;
-                  }
-
+          // แสดงปุ่มตั้งค่ากลุ่มหรือดูสมาชิก (ทุกคนเห็นปุ่มนี้)
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                child: const Icon(Icons.menu, size: 26),
+              ),
+              tooltip: isOwner ? 'ตั้งค่ากลุ่ม' : 'สมาชิกกลุ่ม',
+              onPressed: () async {
+                if (isOwner) {
+                  // Owner ไปหน้าตั้งค่ากลุ่ม
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder:
-                          (context) => GroupSettingsPage(
-                            roomId: widget.roomId,
-                            roomName: widget.roomName,
-                            userRole: widget.userRole, // ส่ง role ไปด้วย
-                          ),
+                      builder: (context) => GroupSettingsPage(
+                        roomId: widget.roomId,
+                        roomName: widget.roomName,
+                        userRole: widget.userRole, // ส่ง role ไปด้วย
+                      ),
                     ),
                   );
                   if (result == true) {
                     fetchMessages();
                   }
-                },
-              ),
+                } else {
+                  // สมาชิกทั่วไป ไปหน้า GroupMembersPage (ดูสมาชิกเท่านั้น)
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => GroupMembersPage(roomId: widget.roomId),
+                    ),
+                  );
+                }
+              },
             ),
+          ),
         ],
       ),
       body: SafeArea(
@@ -3081,26 +3078,19 @@ class _ChatPageState extends State<ChatPage> {
                         // Role badge
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
+                            horizontal: 10,
+                            vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color:
-                                sender['role'] == 'bot'
-                                    ? Colors.red.withOpacity(0.1)
-                                    : Theme.of(
-                                      context,
-                                    ).colorScheme.primary.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
+                            color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
                             sender['role'] == 'bot' ? 'Bot' : 'User',
                             style: TextStyle(
-                              color:
-                                  sender['role'] == 'bot'
-                                      ? Colors.red
-                                      : Theme.of(context).colorScheme.primary,
+                              color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.w600,
+                              fontSize: 13,
                             ),
                           ),
                         ),

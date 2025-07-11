@@ -8,6 +8,9 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Apply Google Services plugin at the end
+apply(plugin = "com.google.gms.google-services")
+
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {

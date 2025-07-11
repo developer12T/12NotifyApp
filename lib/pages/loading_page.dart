@@ -20,7 +20,7 @@ class _LoadingPageState extends State<LoadingPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F8FB),
+      backgroundColor: Colors.white,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -29,7 +29,7 @@ class _LoadingPageState extends State<LoadingPage> {
             SizedBox(height: 24),
             Text(
               'กำลังโหลดข้อมูล...'
-              ,style: TextStyle(fontSize: 18, color: Color(0xFF004B93)),
+              ,style: TextStyle(fontSize: 18, color: const Color(0xFF00569D)),
             ),
           ],
         ),
