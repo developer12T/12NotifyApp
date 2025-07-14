@@ -2,7 +2,9 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../services/api_service.dart';
 import 'noti_service.dart';
 import 'unified_socket_service.dart';
+import 'desktop_notification_service.dart';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -13,6 +15,10 @@ class SocketService {
   final UnifiedSocketService _unifiedSocketService = UnifiedSocketService();
   bool _isAnnouncementSubscribed = false; // Track announcement subscription
   bool _isSocketSetup = false;
+  
+  // Add tracking for recent notifications to prevent duplicates
+  final Map<String, DateTime> _recentNotifications = {};
+  static const Duration _notificationCooldown = Duration(seconds: 3);
 
   factory SocketService() {
     return _instance;
@@ -106,27 +112,59 @@ class SocketService {
         };
       }
       
-      print('=== SocketService: Showing notification ===');
+      // Create a unique key for this announcement to prevent duplicates
+      final announcementId = formattedData['_id']?.toString() ?? 
+                           formattedData['id']?.toString() ?? 
+                           '${formattedData['title']}_${formattedData['createdAt']}';
+      
+      // Check if we've shown this notification recently
+      final now = DateTime.now();
+      if (_recentNotifications.containsKey(announcementId)) {
+        final lastShown = _recentNotifications[announcementId]!;
+        if (now.difference(lastShown) < _notificationCooldown) {
+          print('=== SocketService: Skipping duplicate notification for announcement: $announcementId ===');
+          return;
+        }
+      }
+      
+      print('=== SocketService: Processing announcement notification ===');
       print('Title: ${formattedData['title']}');
       print('Content: ${formattedData['content']}');
+      print('Announcement ID: $announcementId');
       
       // ตรวจสอบว่าเป็น background service หรือไม่
       bool isInBackgroundService = _isInBackgroundService();
       print('=== SocketService: Is in background service: $isInBackgroundService ===');
       
-      if (isInBackgroundService) {
-        // ถ้าเป็น background service ให้ใช้ background notification service
-        print('=== SocketService: Using background notification service ===');
-        _showBackgroundNotification(formattedData);
-      } else {
-        // ถ้าไม่ใช่ background service ให้ใช้ NotiService ปกติ
-        print('=== SocketService: Using normal NotiService ===');
-        _notiService.showNotification(
-          title: 'ประกาศใหม่: ${formattedData['title']}',
-          body: formattedData['content'],
-          payload: json.encode(formattedData),
-        );
+      // Check if FCM is likely to handle this notification
+      bool shouldSkipSocketNotification = _shouldSkipSocketNotification(formattedData);
+      
+      if (shouldSkipSocketNotification) {
+        print('=== SocketService: Skipping socket notification (FCM will handle) ===');
+        // Still track the notification to prevent duplicates
+        _recentNotifications[announcementId] = now;
+        return;
       }
+      
+      // ถ้าแอปอยู่ใน foreground และไม่ใช่ background service ให้ข้าม
+      // เพราะ FCM จะจัดการแทน
+      if (!isInBackgroundService) {
+        print('=== SocketService: App in foreground, letting FCM handle ===');
+        _recentNotifications[announcementId] = now;
+        return;
+      }
+      
+      // แสดงการแจ้งเตือนเฉพาะเมื่อเป็น background service
+      print('=== SocketService: Showing background notification ===');
+      _showBackgroundNotification(formattedData);
+      
+      // Track this notification
+      _recentNotifications[announcementId] = now;
+      
+      // Clean up old entries (older than 1 minute)
+      _recentNotifications.removeWhere((key, time) => 
+        now.difference(time) > const Duration(minutes: 1));
+      
     } catch (e) {
       print('Error handling announcement notification: $e');
       print('Error details: ${e.toString()}');
@@ -154,12 +192,14 @@ class SocketService {
       print('Stack trace contains background_service: ${stackTrace.contains('background_service')}');
       print('Is background service: $isBackground');
       
-
+      // For now, let's always show notifications from Socket service
+      // since the background service detection is not working properly
+      print('=== SocketService: Always showing notification (temporary fix) ===');
+      return false; // Don't show notifications from Socket when app is in foreground
       
-      return isBackground;
     } catch (e) {
       print('Error checking background service: $e');
-      return false;
+      return false; // Default to not showing notification
     }
   }
 
@@ -168,24 +208,36 @@ class SocketService {
     try {
       print('=== SocketService: Showing background notification ===');
       
-      // ใน background service เราไม่สามารถใช้ FlutterBackgroundService.invoke() ได้
-      // ให้ใช้วิธีอื่นแทน เช่น การแสดง notification โดยตรงผ่าน NotiService
-      // แต่ใช้ method ที่ไม่ต้อง initialize ใหม่
-      
-      try {
-        // ลองใช้ showNotificationWithoutInit ก่อน
-        _notiService.showNotificationWithoutInit(
-          title: 'ประกาศใหม่: ${data['title']}',
-          body: data['content'],
-          payload: json.encode(data),
-        );
-        print('=== SocketService: Background notification shown with showNotificationWithoutInit ===');
-      } catch (e) {
-        print('=== SocketService: showNotificationWithoutInit failed, trying fallback ===');
-        print('Error: $e');
-        
-        // ถ้าไม่สำเร็จ ให้ใช้วิธี fallback
-        _showFallbackNotification(data);
+      // ตรวจสอบ platform เพื่อใช้ service ที่เหมาะสม
+      if (Platform.isAndroid || Platform.isIOS) {
+        // Mobile platforms - ใช้ NotiService
+        try {
+          _notiService.showNotificationWithoutInit(
+            title: 'ประกาศใหม่: ${data['title']}',
+            body: data['content'],
+            payload: json.encode(data),
+          );
+          print('=== SocketService: Mobile notification shown ===');
+        } catch (e) {
+          print('=== SocketService: Mobile notification failed, trying fallback ===');
+          print('Error: $e');
+          _showFallbackNotification(data);
+        }
+      } else {
+        // Desktop platforms - ใช้ DesktopNotificationService
+        try {
+          final desktopNotificationService = DesktopNotificationService();
+          desktopNotificationService.showAnnouncementNotification(
+            title: data['title'] ?? 'ประกาศใหม่',
+            content: data['content'] ?? 'มีประกาศใหม่',
+            data: data,
+          );
+          print('=== SocketService: Desktop notification shown ===');
+        } catch (e) {
+          print('=== SocketService: Desktop notification failed, trying fallback ===');
+          print('Error: $e');
+          _showFallbackNotification(data);
+        }
       }
       
     } catch (e) {
@@ -202,11 +254,12 @@ class SocketService {
       // ใช้ FlutterLocalNotificationsPlugin โดยตรง
       final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
       
+      // ใช้ channel เดียวกับ FCM service เพื่อให้มี icon เดียวกัน
       const notificationDetails = NotificationDetails(
         android: AndroidNotificationDetails(
-          'socket_service_channel',
-          '12Chat Background Service',
-          channelDescription: 'ช่องทางการแจ้งเตือนสำหรับ Background Service',
+          'fcm_foreground_channel',  // ใช้ channel เดียวกับ FCM
+          'FCM Foreground Notifications',
+          channelDescription: 'ช่องทางการแจ้งเตือน FCM สำหรับ Foreground',
           importance: Importance.high,
           priority: Priority.high,
           showWhen: true,
@@ -480,7 +533,9 @@ class SocketService {
     };
     
     try {
-      _handleAnnouncementNotification(testData);
+      // Force show notification for testing
+      print('=== SocketService: Force showing test notification ===');
+      _showBackgroundNotification(testData);
       print('=== SocketService: Test announcement notification sent successfully ===');
     } catch (e) {
       print('=== SocketService: Error sending test announcement notification: $e ===');
@@ -656,11 +711,12 @@ class SocketService {
       // ใช้ FlutterLocalNotificationsPlugin โดยตรง
       final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
       
+      // ใช้ channel เดียวกับ FCM service เพื่อให้มี icon ใหม่
       const notificationDetails = NotificationDetails(
         android: AndroidNotificationDetails(
-          'socket_service_channel',
-          '12Chat Background Service',
-          channelDescription: 'ช่องทางการแจ้งเตือนสำหรับ Background Service',
+          'fcm_foreground_channel',  // ใช้ channel เดียวกับ FCM เพื่อให้มี icon ใหม่
+          'FCM Foreground Notifications',
+          channelDescription: 'ช่องทางการแจ้งเตือน FCM สำหรับ Foreground',
           importance: Importance.high,
           priority: Priority.high,
           showWhen: true,
@@ -702,5 +758,19 @@ class SocketService {
     print('=== SocketService: Refreshing background subscriptions ===');
     subscribeToAnnouncements();
     subscribeToAllNotifications();
+  }
+
+  /// ตรวจสอบว่าควรข้ามการแจ้งเตือนจาก Socket หรือไม่
+  bool _shouldSkipSocketNotification(Map<String, dynamic> data) {
+    try {
+      // For now, let's always show notifications from Socket service
+      // since the coordination with FCM is not working properly
+      print('=== SocketService: Always showing notification (temporary fix) ===');
+      return false;
+      
+    } catch (e) {
+      print('Error checking if should skip socket notification: $e');
+      return false;
+    }
   }
 } 

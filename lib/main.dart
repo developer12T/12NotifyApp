@@ -14,6 +14,7 @@ import 'services/unified_socket_service.dart';
 import 'services/memory_manager.dart';
 import 'services/socket_service.dart';
 import 'services/noti_service.dart';
+import 'services/desktop_notification_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'services/fcm_service.dart';
@@ -36,22 +37,6 @@ class CustomDebugBanner extends StatelessWidget {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Test Firebase initialization first
-  bool firebaseInitialized = await FirebaseTest.testFirebaseInitialization();
-  
-  if (firebaseInitialized) {
-    try {
-      // เริ่มต้น FCM Service
-      await FCMService.initialize();
-      print('FCM Service initialized successfully');
-    } catch (e) {
-      print('Error initializing FCM: $e');
-      // Continue without FCM if it fails
-    }
-  } else {
-    print('Firebase initialization failed, skipping FCM setup');
-  }
-  
   // Load .env file
   await dotenv.load(fileName: ".env");
   
@@ -65,6 +50,31 @@ void main() async {
   
   // เริ่มต้น MemoryManager
   final memoryManager = MemoryManager();
+  
+  // Initialize FCM only on mobile platforms
+  if (Platform.isAndroid || Platform.isIOS) {
+    // Test Firebase initialization first
+    bool firebaseInitialized = await FirebaseTest.testFirebaseInitialization();
+    
+    if (firebaseInitialized) {
+      try {
+        // เริ่มต้น FCM Service
+        await FCMService.initialize();
+        print('FCM Service initialized successfully');
+      } catch (e) {
+        print('Error initializing FCM: $e');
+        // Continue without FCM if it fails
+      }
+    } else {
+      print('Firebase initialization failed, skipping FCM setup');
+    }
+  } else {
+    print('Desktop platform detected, initializing DesktopNotificationService');
+    // Initialize DesktopNotificationService for desktop platforms
+    final desktopNotificationService = DesktopNotificationService();
+    await desktopNotificationService.initialize();
+    print('DesktopNotificationService initialized successfully');
+  }
   
   final prefs = await SharedPreferences.getInstance();
   final userData = prefs.getString('user');

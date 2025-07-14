@@ -54,10 +54,10 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     // Check notification permissions
     _checkNotificationPermissions();
     
-    // Test notification after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      _testNotification();
-    });
+    // DISABLED: Test notification after 3 seconds
+    // Future.delayed(const Duration(seconds: 3), () {
+    //   _testNotification();
+    // });
   }
 
   Future<void> _loadUserData() async {
@@ -245,28 +245,31 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     print('Current selected index: $_selectedIndex');
     print('Is in chat page: $isInChatPage');
     
-    // Show notification if there are unread messages OR if app is not in foreground
-    if (unreadCount > 0 || !isAppInForeground) {
-      final now = DateTime.now();
-      
-      // Prevent duplicate notifications within 5 seconds
-      if (_lastNotificationTime != null && 
-          _lastNotificationType == type &&
-          now.difference(_lastNotificationTime!).inSeconds < 5) {
-        print('Skipping duplicate notification');
-        return;
-      }
-      
-      print('Showing notification...');
-      _showMessageNotification(type, unreadCount);
-      
-      // Update last notification info
-      _lastNotificationTime = now;
-      _lastNotificationType = type;
-      print('Notification shown successfully');
-    } else {
-      print('Skipping notification: unreadCount=$unreadCount, isAppInForeground=$isAppInForeground');
-    }
+    // DISABLED: Show notification if there are unread messages OR if app is not in foreground
+    // if (unreadCount > 0 || !isAppInForeground) {
+    //   final now = DateTime.now();
+    //   
+    //   // Prevent duplicate notifications within 5 seconds
+    //   if (_lastNotificationTime != null && 
+    //       _lastNotificationType == type &&
+    //       now.difference(_lastNotificationTime!).inSeconds < 5) {
+    //     print('Skipping duplicate notification');
+    //     return;
+    //   }
+    //   
+    //   print('Showing notification...');
+    //   _showMessageNotification(type, unreadCount);
+    //   
+    //   // Update last notification info
+    //   _lastNotificationTime = now;
+    //   _lastNotificationType = type;
+    //   print('Notification shown successfully');
+    // } else {
+    //   print('Skipping notification: unreadCount=$unreadCount, isAppInForeground=$isAppInForeground');
+    // }
+    
+    // DISABLED: Notifications temporarily disabled
+    print('Notifications disabled - skipping message notification');
   }
 
   // Show message notification
@@ -382,23 +385,23 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
   }
 
   // Test notification
-  Future<void> _testNotification() async {
-    print('MainNavigation: Testing notification...');
-    try {
-      final notificationService = NotificationService();
-      // await notificationService.showNotification(
-      //   title: 'ทดสอบการแจ้งเตือน',
-      //   body: 'นี่คือการทดสอบการแจ้งเตือน',
-      //   payload: jsonEncode({
-      //     'type': 'test',
-      //     'message': 'Test notification',
-      //   }),
-      // );
-      print('MainNavigation: Test notification sent successfully');
-    } catch (e) {
-      print('MainNavigation: Error sending test notification: $e');
-    }
-  }
+  // Future<void> _testNotification() async {
+  //   print('MainNavigation: Testing notification...');
+  //   try {
+  //     final notificationService = NotificationService();
+  //     // await notificationService.showNotification(
+  //     //   title: 'ทดสอบการแจ้งเตือน',
+  //     //   body: 'นี่คือการทดสอบการแจ้งเตือน',
+  //     //   payload: jsonEncode({
+  //     //     'type': 'test',
+  //     //     'message': 'Test notification',
+  //     //   }),
+  //     // );
+  //     print('MainNavigation: Test notification sent successfully');
+  //   } catch (e) {
+  //     print('MainNavigation: Error sending test notification: $e');
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {

@@ -11,15 +11,53 @@ import 'api_service.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print('Background message received: ${message.notification?.title}');
-  
-  // Show local notification for background messages
-  await _showBackgroundNotification(message);
+  print('FCMService: Background message received: ${message.notification?.title}');
+  print('FCMService: Background message data: ${message.data}');
+  print('FCMService: Background message from: ${message.from}');
+  print('FCMService: Background message messageId: ${message.messageId}');
+  print('FCMService: Background message sentTime: ${message.sentTime}');
+
+  // Skip empty or invalid messages
+  if (message.notification?.title == null && message.data.isEmpty) {
+    print('FCMService: Skipping empty/invalid message in background');
+    return;
+  }
+
+  // Skip "New Message" notifications
+  if (message.notification?.title == 'New Message') {
+    print('FCMService: Skipping "New Message" notification in background');
+    return;
+  }
+
+  // Let Firebase handle the notification automatically when app is closed
+  // We only handle it manually when we want custom behavior
+  print('FCMService: Letting Firebase handle background notification');
 }
 
 // Helper function to show notification in background
 @pragma('vm:entry-point')
 Future<void> _showBackgroundNotification(RemoteMessage message) async {
+  // Skip "New Message" notifications
+  if (message.notification?.title == 'New Message') {
+    print('FCMService: Skipping "New Message" notification in background');
+    return;
+  }
+  
+  // Skip empty or invalid messages
+  if (message.notification?.title == null && message.data.isEmpty) {
+    print('FCMService: Skipping empty/invalid message in background helper');
+    return;
+  }
+  
+  // Create unique ID for background notification
+  final messageId = message.messageId ?? '';
+  final timestamp = message.sentTime?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
+  final notificationId = messageId.isNotEmpty 
+      ? messageId.hashCode 
+      : timestamp ~/ 1000;
+  
+  print('FCMService: Background notification ID: $notificationId');
+  
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
@@ -46,16 +84,16 @@ Future<void> _showBackgroundNotification(RemoteMessage message) async {
     android: androidPlatformChannelSpecifics,
     iOS: iOSPlatformChannelSpecifics,
   );
-
-  final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   
   await flutterLocalNotificationsPlugin.show(
-    id,
-    message.notification?.title ?? 'New Message',
-    message.notification?.body ?? '',
+    notificationId,
+    message.notification?.title ?? 'การแจ้งเตือนใหม่',
+    message.notification?.body ?? 'คุณมีการแจ้งเตือนใหม่',
     platformChannelSpecifics,
     payload: json.encode(message.data),
   );
+  
+  print('FCMService: Background notification shown with ID: $notificationId');
 }
 
 class FCMService {
@@ -63,16 +101,21 @@ class FCMService {
   factory FCMService() => _instance;
   FCMService._internal();
 
-  static final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
-  static final FlutterLocalNotificationsPlugin _localNotifications = 
+  static final FirebaseMessaging _firebaseMessaging =
+      FirebaseMessaging.instance;
+  static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
 
+  // Add tracking for recent notifications to prevent duplicates
+  static final Map<String, DateTime> _recentNotifications = {};
+  static const Duration _notificationCooldown = Duration(seconds: 5); // เพิ่มเวลาเป็น 5 วินาที
+
   static Future<void> initialize() async {
     print('FCMService: Initializing FCM...');
-    
+
     try {
       // Check if Firebase is initialized
       try {
@@ -80,20 +123,24 @@ class FCMService {
       } catch (e) {
         print('FCMService: Firebase already initialized or error: $e');
       }
-      
+
       // Request permission
-      NotificationSettings settings = await _firebaseMessaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
+      NotificationSettings settings = await _firebaseMessaging
+          .requestPermission(
+            alert: true,
+            badge: true,
+            sound: true,
+            provisional: false,
+          );
+
+      print(
+        'FCMService: Authorization status: ${settings.authorizationStatus}',
       );
 
-      print('FCMService: Authorization status: ${settings.authorizationStatus}');
-      
       if (settings.authorizationStatus == AuthorizationStatus.authorized) {
         print('FCMService: User granted permission');
-      } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+      } else if (settings.authorizationStatus ==
+          AuthorizationStatus.provisional) {
         print('FCMService: User granted provisional permission');
       } else {
         print('FCMService: User denied permission');
@@ -102,20 +149,46 @@ class FCMService {
       // Get FCM token
       String? token = await _firebaseMessaging.getToken();
       print('FCMService: FCM Token: $token');
-      
+
       // บันทึก token ไปยัง server/database
       if (token != null) {
-        await _saveTokenToDatabase(token);
+        // Get user ID from SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        final userJson = prefs.getString('user');
+        String? employeeID;
+
+        if (userJson != null) {
+          final userData = jsonDecode(userJson);
+          employeeID = userData['employeeID']?.toString();
+        }
+
+        if (employeeID != null) {
+          await sendTokenToServer(token, employeeID);
+        } else {
+          print('FCMService: User ID not found, skipping token save');
+        }
       }
 
       // Setup background message handler
-      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      FirebaseMessaging.onBackgroundMessage(
+        _firebaseMessagingBackgroundHandler,
+      );
+      
+      // Disable automatic notification display only for foreground
+      await _firebaseMessaging.setForegroundNotificationPresentationOptions(
+        alert: false,
+        badge: false,
+        sound: false,
+      );
+      
+
 
       // Setup local notifications
       await _setupLocalNotifications();
 
       // Handle notification tap when app is terminated
-      RemoteMessage? initialMessage = await _firebaseMessaging.getInitialMessage();
+      RemoteMessage? initialMessage =
+          await _firebaseMessaging.getInitialMessage();
       if (initialMessage != null) {
         print('FCMService: App opened from terminated state');
         _handleNotificationTap(initialMessage);
@@ -134,9 +207,24 @@ class FCMService {
       });
 
       // Token refresh
-      _firebaseMessaging.onTokenRefresh.listen((String token) {
+      _firebaseMessaging.onTokenRefresh.listen((String token) async {
         print('FCMService: Token refreshed: $token');
-        _saveTokenToDatabase(token);
+        
+        // Get user ID from SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        final userJson = prefs.getString('user');
+        String? employeeID;
+
+        if (userJson != null) {
+          final userData = jsonDecode(userJson);
+          employeeID = userData['employeeID']?.toString();
+        }
+
+        if (employeeID != null) {
+          await sendTokenToServer(token, employeeID);
+        } else {
+          print('FCMService: User ID not found, skipping token refresh save');
+        }
       });
 
       print('FCMService: Initialization completed successfully');
@@ -153,88 +241,58 @@ class FCMService {
 
       const DarwinInitializationSettings initializationSettingsIOS =
           DarwinInitializationSettings(
-        requestAlertPermission: false, // Already requested above
-        requestBadgePermission: false,
-        requestSoundPermission: false,
-      );
+            requestAlertPermission: false, // Already requested above
+            requestBadgePermission: false,
+            requestSoundPermission: false,
+          );
 
       const InitializationSettings initializationSettings =
           InitializationSettings(
-        android: initializationSettingsAndroid,
-        iOS: initializationSettingsIOS,
-      );
+            android: initializationSettingsAndroid,
+            iOS: initializationSettingsIOS,
+          );
 
       await _localNotifications.initialize(initializationSettings);
 
-      // Create notification channel for Android
-      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      // Create notification channels for Android
+      const AndroidNotificationChannel foregroundChannel = AndroidNotificationChannel(
         'fcm_foreground_channel',
         'FCM Foreground Notifications',
         description: 'ช่องทางการแจ้งเตือน FCM สำหรับ Foreground',
         importance: Importance.max,
       );
 
+      const AndroidNotificationChannel backgroundChannel = AndroidNotificationChannel(
+        'fcm_background_channel',
+        'FCM Background Notifications',
+        description: 'ช่องทางการแจ้งเตือน FCM สำหรับ Background',
+        importance: Importance.max,
+      );
+
       await _localNotifications
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(channel);
-          
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(foregroundChannel);
+
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(backgroundChannel);
+
       print('FCMService: Local notifications setup completed');
     } catch (e) {
       print('FCMService: Error setting up local notifications: $e');
     }
   }
 
-  static Future<void> _saveTokenToDatabase(String token) async {
-    // บันทึก token ไปยัง server หรือ database
-    print('FCMService: Saving token to database: $token');
-    
-    try {
-      // Get user ID from SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      final userJson = prefs.getString('user');
-      String? userId;
-      
-      if (userJson != null) {
-        final userData = jsonDecode(userJson);
-        userId = userData['employeeID']?.toString();
-      }
-      
-      if (userId == null) {
-        print('FCMService: User ID not found, skipping token save');
-        return;
-      }
-      
-      // Save token to your server
-      final response = await http.post(
-        Uri.parse('${ApiService.baseUrl}/api/fcm-token'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${prefs.getString('token')}',
-        },
-        body: json.encode({
-          'user_id': userId,
-          'fcm_token': token,
-          'platform': Platform.isAndroid ? 'android' : 'ios',
-          'app_version': '1.0.0',
-        }),
-      );
-      
-      if (response.statusCode == 200) {
-        print('FCMService: Token saved successfully to server');
-      } else {
-        print('FCMService: Failed to save token: ${response.statusCode}');
-        print('FCMService: Response: ${response.body}');
-      }
-    } catch (e) {
-      print('FCMService: Error saving token: $e');
-      // Don't throw error, just log it
-    }
-  }
+
 
   static void _handleNotificationTap(RemoteMessage message) {
     // จัดการเมื่อผู้ใช้แตะ notification
     print('FCMService: Notification tapped: ${message.data}');
-    
+
     // Navigate to specific screen based on notification data
     if (message.data.containsKey('chat_id')) {
       // Navigate to chat screen
@@ -243,19 +301,121 @@ class FCMService {
     } else if (message.data.containsKey('announcement_id')) {
       // Navigate to announcement screen
       // Get.to(() => AnnouncementDetailScreen(announcementId: message.data['announcement_id']));
-      print('FCMService: Should navigate to announcement: ${message.data['announcement_id']}');
+      print(
+        'FCMService: Should navigate to announcement: ${message.data['announcement_id']}',
+      );
     }
   }
 
   static void _handleForegroundMessage(RemoteMessage message) {
-    print('FCMService: Handling foreground message: ${message.notification?.title}');
+    print(
+      'FCMService: Handling foreground message: ${message.notification?.title}',
+    );
+    print('FCMService: Foreground message data: ${message.data}');
+    print('FCMService: Foreground message from: ${message.from}');
+    print('FCMService: Foreground message messageId: ${message.messageId}');
+    print('FCMService: Foreground message sentTime: ${message.sentTime}');
+
+    // Create a unique key for this notification to prevent duplicates
+    final notificationKey = _createNotificationKey(message);
+
+    // Check if we've shown this notification recently
+    final now = DateTime.now();
+    if (_recentNotifications.containsKey(notificationKey)) {
+      final lastShown = _recentNotifications[notificationKey]!;
+      if (now.difference(lastShown) < _notificationCooldown) {
+        print(
+          'FCMService: Skipping duplicate notification for key: $notificationKey (shown ${now.difference(lastShown).inSeconds} seconds ago)',
+        );
+        return;
+      }
+    }
     
+    print('FCMService: Processing new notification with key: $notificationKey');
+
+    // Check if this is an announcement that should be handled by Socket service
+    if (_shouldSkipFCMNotification(message)) {
+      print('FCMService: Skipping FCM notification (Socket will handle)');
+      // Still track the notification to prevent duplicates
+      _recentNotifications[notificationKey] = now;
+      return;
+    }
+
     // Show local notification for foreground messages
     _showForegroundNotification(message);
+
+    // Track this notification
+    _recentNotifications[notificationKey] = now;
+
+    // Clean up old entries (older than 2 minutes)
+    _recentNotifications.removeWhere(
+      (key, time) => now.difference(time) > const Duration(minutes: 2),
+    );
+    
+    print('FCMService: Current recent notifications count: ${_recentNotifications.length}');
+  }
+
+  /// สร้าง unique key สำหรับ notification
+  static String _createNotificationKey(RemoteMessage message) {
+    final title = message.notification?.title ?? '';
+    final body = message.notification?.body ?? '';
+    final messageId = message.messageId ?? '';
+    final data = message.data.isNotEmpty ? message.data.toString() : '';
+    final timestamp =
+        message.sentTime?.millisecondsSinceEpoch ??
+        DateTime.now().millisecondsSinceEpoch;
+
+    // ใช้ messageId เป็นหลัก เพราะมัน unique สำหรับแต่ละ message
+    if (messageId.isNotEmpty) {
+      return 'fcm_${messageId}';
+    }
+    
+    // Fallback ใช้ข้อมูลอื่นๆ แต่ไม่ใช้ timestamp เพื่อป้องกันการเบิ้ล
+    return 'fcm_${title}_${body}_${data}';
+  }
+
+  /// ตรวจสอบว่าควรข้ามการแจ้งเตือนจาก FCM หรือไม่
+  static bool _shouldSkipFCMNotification(RemoteMessage message) {
+    try {
+      // ถ้าเป็น announcement และแอปอยู่ใน foreground
+      // ให้ FCM จัดการแทนเพื่อให้แน่ใจว่าจะมีการแจ้งเตือน
+      final title = message.notification?.title ?? '';
+      final body = message.notification?.body ?? '';
+
+      // ตรวจสอบว่าเป็น announcement หรือไม่
+      final isAnnouncement =
+          title.contains('ประกาศ') ||
+          body.contains('ประกาศ') ||
+          message.data.containsKey('type') &&
+              message.data['type'] == 'announcement';
+
+      if (isAnnouncement) {
+        print(
+          'FCMService: Detected announcement, FCM will handle it',
+        );
+        return false; // Let FCM handle announcements
+      }
+
+      // ถ้าแอปอยู่ใน background ให้ Socket service จัดการ
+      // FCM จะจัดการเฉพาะเมื่อแอปอยู่ใน foreground
+      print(
+        'FCMService: App in foreground, FCM will handle non-announcement notifications',
+      );
+      return false;
+    } catch (e) {
+      print('FCMService: Error checking if should skip FCM notification: $e');
+      return false;
+    }
   }
 
   static Future<void> _showForegroundNotification(RemoteMessage message) async {
     try {
+      // Skip "New Message" notifications
+      if (message.notification?.title == 'New Message') {
+        print('FCMService: Skipping "New Message" notification in foreground');
+        return;
+      }
+      
       const AndroidNotificationDetails androidPlatformChannelSpecifics =
           AndroidNotificationDetails(
         'fcm_foreground_channel',
@@ -334,13 +494,15 @@ class FCMService {
           'deviceInfo': {
             'platform': Platform.isAndroid ? 'android' : 'ios',
             'appVersion': '1.0.0',
-          }
+          },
         }),
       );
       if (response.statusCode == 200) {
         print('FCMService: Token saved successfully');
       } else {
-        print('FCMService: Failed to save token: ${response.statusCode} ${response.body}');
+        print(
+          'FCMService: Failed to save token: ${response.statusCode} ${response.body}',
+        );
       }
     } catch (e) {
       print('FCMService: Error saving token: $e');
@@ -412,7 +574,7 @@ class FCMService {
     try {
       String? token = await getToken();
       print('FCMService: Test - Current token: $token');
-      
+
       if (token != null) {
         print('FCMService: Test - FCM setup is working correctly');
         return;
@@ -423,4 +585,4 @@ class FCMService {
       print('FCMService: Test - Error: $e');
     }
   }
-} 
+}

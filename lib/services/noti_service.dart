@@ -196,11 +196,12 @@ class NotiService {
     
     try {
       // ใช้ notification details แบบ simple โดยไม่ต้อง initialize ใหม่
+      // ใช้ channel เดียวกับ FCM service เพื่อให้มี icon เดียวกัน
       const notificationDetails = NotificationDetails(
         android: AndroidNotificationDetails(
-          'socket_service_channel',  // ใช้ channel เดียวกับ background service
-          '12Chat Background Service',
-          channelDescription: 'ช่องทางการแจ้งเตือนสำหรับ Background Service',
+          'fcm_foreground_channel',  // ใช้ channel เดียวกับ FCM
+          'FCM Foreground Notifications',
+          channelDescription: 'ช่องทางการแจ้งเตือน FCM สำหรับ Foreground',
           importance: Importance.high,
           priority: Priority.high,
           showWhen: true,
