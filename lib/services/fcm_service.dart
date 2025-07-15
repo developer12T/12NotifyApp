@@ -10,6 +10,10 @@ import 'api_service.dart';
 // Background message handler (ต้องอยู่นอก class)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  if (!(Platform.isAndroid || Platform.isIOS)) {
+    print('FCMService: Skipping background handler on desktop');
+    return;
+  }
   await Firebase.initializeApp();
   print('FCMService: Background message received: ${message.notification?.title}');
   print('FCMService: Background message data: ${message.data}');
@@ -101,10 +105,23 @@ class FCMService {
   factory FCMService() => _instance;
   FCMService._internal();
 
-  static final FirebaseMessaging _firebaseMessaging =
-      FirebaseMessaging.instance;
-  static final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
+  static FirebaseMessaging? _firebaseMessaging;
+  static FirebaseMessaging? get firebaseMessagingInstance {
+    if (Platform.isAndroid || Platform.isIOS) {
+      _firebaseMessaging ??= FirebaseMessaging.instance;
+      return _firebaseMessaging;
+    }
+    return null;
+  }
+
+  static FlutterLocalNotificationsPlugin? _localNotifications;
+  static FlutterLocalNotificationsPlugin? get localNotificationsInstance {
+    if (Platform.isAndroid || Platform.isIOS) {
+      _localNotifications ??= FlutterLocalNotificationsPlugin();
+      return _localNotifications;
+    }
+    return null;
+  }
 
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
@@ -114,6 +131,10 @@ class FCMService {
   static const Duration _notificationCooldown = Duration(seconds: 5); // เพิ่มเวลาเป็น 5 วินาที
 
   static Future<void> initialize() async {
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      print('FCMService: Skipping FCM initialization on desktop');
+      return;
+    }
     print('FCMService: Initializing FCM...');
 
     try {
@@ -121,17 +142,22 @@ class FCMService {
       try {
         await Firebase.initializeApp();
       } catch (e) {
-        print('FCMService: Firebase already initialized or error: $e');
+        print('FCMService: Firebase already initialized or error: ${e}');
+      }
+
+      final fcm = firebaseMessagingInstance;
+      if (fcm == null) {
+        print('FCMService: firebaseMessagingInstance is null, aborting FCM setup');
+        return;
       }
 
       // Request permission
-      NotificationSettings settings = await _firebaseMessaging
-          .requestPermission(
-            alert: true,
-            badge: true,
-            sound: true,
-            provisional: false,
-          );
+      NotificationSettings settings = await fcm.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
 
       print(
         'FCMService: Authorization status: ${settings.authorizationStatus}',
@@ -147,7 +173,7 @@ class FCMService {
       }
 
       // Get FCM token
-      String? token = await _firebaseMessaging.getToken();
+      String? token = await fcm.getToken();
       print('FCMService: FCM Token: $token');
 
       // บันทึก token ไปยัง server/database
@@ -175,7 +201,7 @@ class FCMService {
       );
       
       // Disable automatic notification display only for foreground
-      await _firebaseMessaging.setForegroundNotificationPresentationOptions(
+      await fcm.setForegroundNotificationPresentationOptions(
         alert: false,
         badge: false,
         sound: false,
@@ -188,7 +214,7 @@ class FCMService {
 
       // Handle notification tap when app is terminated
       RemoteMessage? initialMessage =
-          await _firebaseMessaging.getInitialMessage();
+          await fcm.getInitialMessage();
       if (initialMessage != null) {
         print('FCMService: App opened from terminated state');
         _handleNotificationTap(initialMessage);
@@ -200,14 +226,14 @@ class FCMService {
         _handleNotificationTap(message);
       });
 
-      // Handle foreground messages
+      // Listen for foreground messages
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         print('FCMService: Foreground message received');
         _handleForegroundMessage(message);
       });
 
       // Token refresh
-      _firebaseMessaging.onTokenRefresh.listen((String token) async {
+      fcm.onTokenRefresh.listen((String token) async {
         print('FCMService: Token refreshed: $token');
         
         // Get user ID from SharedPreferences
@@ -229,7 +255,7 @@ class FCMService {
 
       print('FCMService: Initialization completed successfully');
     } catch (e) {
-      print('FCMService: Error during initialization: $e');
+      print('FCMService: Error initializing FCM: ${e}');
       rethrow;
     }
   }
@@ -252,7 +278,7 @@ class FCMService {
             iOS: initializationSettingsIOS,
           );
 
-      await _localNotifications.initialize(initializationSettings);
+      await localNotificationsInstance!.initialize(initializationSettings);
 
       // Create notification channels for Android
       const AndroidNotificationChannel foregroundChannel = AndroidNotificationChannel(
@@ -269,13 +295,13 @@ class FCMService {
         importance: Importance.max,
       );
 
-      await _localNotifications
+      await localNotificationsInstance!
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.createNotificationChannel(foregroundChannel);
 
-      await _localNotifications
+      await localNotificationsInstance!
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >()
@@ -286,8 +312,6 @@ class FCMService {
       print('FCMService: Error setting up local notifications: $e');
     }
   }
-
-
 
   static void _handleNotificationTap(RemoteMessage message) {
     // จัดการเมื่อผู้ใช้แตะ notification
@@ -442,7 +466,7 @@ class FCMService {
 
       final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       
-      await _localNotifications.show(
+      await localNotificationsInstance!.show(
         id,
         message.notification?.title ?? 'New Message',
         message.notification?.body ?? '',
@@ -476,7 +500,7 @@ class FCMService {
       print('FCMService: employeeID not found, skip sending token');
       return;
     }
-    String? token = await FirebaseMessaging.instance.getToken();
+    String? token = await firebaseMessagingInstance!.getToken();
     if (token != null) {
       await sendTokenToServer(token, employeeID);
     }
@@ -529,20 +553,24 @@ class FCMService {
       print('FCMService: employeeID not found, skip token refresh listener');
       return;
     }
-    FirebaseMessaging.instance.onTokenRefresh.listen((token) {
+    firebaseMessagingInstance!.onTokenRefresh.listen((token) {
       sendTokenToServer(token, employeeID);
     });
   }
 
   // Get current FCM token
   static Future<String?> getToken() async {
-    return await _firebaseMessaging.getToken();
+    final fcm = firebaseMessagingInstance;
+    if (fcm == null) return null;
+    return await fcm.getToken();
   }
 
   // Subscribe to topic
   static Future<void> subscribeToTopic(String topic) async {
+    final fcm = firebaseMessagingInstance;
+    if (fcm == null) return;
     try {
-      await _firebaseMessaging.subscribeToTopic(topic);
+      await fcm.subscribeToTopic(topic);
       print('FCMService: Subscribed to topic: $topic');
     } catch (e) {
       print('FCMService: Error subscribing to topic: $e');
@@ -551,8 +579,10 @@ class FCMService {
 
   // Unsubscribe from topic
   static Future<void> unsubscribeFromTopic(String topic) async {
+    final fcm = firebaseMessagingInstance;
+    if (fcm == null) return;
     try {
-      await _firebaseMessaging.unsubscribeFromTopic(topic);
+      await fcm.unsubscribeFromTopic(topic);
       print('FCMService: Unsubscribed from topic: $topic');
     } catch (e) {
       print('FCMService: Error unsubscribing from topic: $e');
@@ -561,8 +591,10 @@ class FCMService {
 
   // Delete token (for logout)
   static Future<void> deleteToken() async {
+    final fcm = firebaseMessagingInstance;
+    if (fcm == null) return;
     try {
-      await _firebaseMessaging.deleteToken();
+      await fcm.deleteToken();
       print('FCMService: FCM token deleted');
     } catch (e) {
       print('FCMService: Error deleting FCM token: $e');

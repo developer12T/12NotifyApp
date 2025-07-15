@@ -1,36 +1,26 @@
 {
   "project_info": {
-    "project_number": "921623976149",
-    "project_id": "pacific-destiny-452703-u5",
-    "storage_bucket": "pacific-destiny-452703-u5.firebasestorage.app"
+    "project_number": "866284041415",
+    "project_id": "appservice-8bc1d",
+    "storage_bucket": "appservice-8bc1d.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:921623976149:android:cff507e48df8119a842a5c",
+        "mobilesdk_app_id": "1:866284041415:android:adf7085c2a4bd2d0c07ae2",
         "android_client_info": {
           "package_name": "com.onetwotrading.onetwochat.noti_one_two"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "921623976149-jk2860i5tmsi6mja4kv6nabruglmp1il.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAWVhQ1Vf0e-p3-71TgDgjsMwQR8nsRzSo"
+          "current_key": "AIzaSyAJRVKLBxs2-ZRGQ6Te4pVeU0IJnYY2uJA"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "921623976149-jk2860i5tmsi6mja4kv6nabruglmp1il.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }

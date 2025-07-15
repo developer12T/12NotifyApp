@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -15,10 +15,13 @@ import 'services/memory_manager.dart';
 import 'services/socket_service.dart';
 import 'services/noti_service.dart';
 import 'services/desktop_notification_service.dart';
+import 'services/api_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'services/fcm_service.dart';
 import 'services/firebase_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class CustomDebugBanner extends StatelessWidget {
   const CustomDebugBanner({super.key});
@@ -34,54 +37,144 @@ class CustomDebugBanner extends StatelessWidget {
   }
 }
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyRootApp());
+}
 
-  // Load .env file
-  await dotenv.load(fileName: ".env");
-  
-  // เริ่มต้นการแจ้งเตือน
-  final notificationService = NotificationService();
-  await notificationService.init();
-  
-  // เริ่มต้น UnifiedSocketService
-  final unifiedSocketService = UnifiedSocketService();
-  await unifiedSocketService.initialize();
-  
-  // เริ่มต้น MemoryManager
-  final memoryManager = MemoryManager();
-  
-  // Initialize FCM only on mobile platforms
-  if (Platform.isAndroid || Platform.isIOS) {
-    // Test Firebase initialization first
-    bool firebaseInitialized = await FirebaseTest.testFirebaseInitialization();
-    
-    if (firebaseInitialized) {
-      try {
-        // เริ่มต้น FCM Service
-        await FCMService.initialize();
-        print('FCM Service initialized successfully');
-      } catch (e) {
-        print('Error initializing FCM: $e');
-        // Continue without FCM if it fails
+class MyRootApp extends StatefulWidget {
+  const MyRootApp({Key? key}) : super(key: key);
+
+  @override
+  State<MyRootApp> createState() => _MyRootAppState();
+}
+
+class _MyRootAppState extends State<MyRootApp> {
+  bool _isLoading = true;
+  bool _forceUpdate = false;
+  String? _updateUrl;
+  String? _initialRoute;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // 1. เช็คเวอร์ชัน
+    final versionOk = await _checkAppVersion();
+    if (!versionOk) {
+      setState(() {
+        _forceUpdate = true;
+        _isLoading = false;
+      });
+      return;
+    }
+    // 2. Init Firebase เฉพาะมือถือ
+    if (Platform.isAndroid || Platform.isIOS) {
+      await Firebase.initializeApp();
+    }
+    // 3. Init notification, memory, socket, etc.
+    final notificationService = NotificationService();
+    await notificationService.init();
+    final unifiedSocketService = UnifiedSocketService();
+    await unifiedSocketService.initialize();
+    final memoryManager = MemoryManager();
+    if (Platform.isAndroid || Platform.isIOS) {
+      bool firebaseInitialized = await FirebaseTest.testFirebaseInitialization();
+      if (firebaseInitialized) {
+        try {
+          await FCMService.initialize();
+        } catch (e) {
+          print('Error initializing FCM: $e');
+        }
       }
     } else {
-      print('Firebase initialization failed, skipping FCM setup');
+      final desktopNotificationService = DesktopNotificationService();
+      await desktopNotificationService.initialize();
     }
-  } else {
-    print('Desktop platform detected, initializing DesktopNotificationService');
-    // Initialize DesktopNotificationService for desktop platforms
-    final desktopNotificationService = DesktopNotificationService();
-    await desktopNotificationService.initialize();
-    print('DesktopNotificationService initialized successfully');
+    // 4. ตรวจสอบ user login
+    final prefs = await SharedPreferences.getInstance();
+    final userData = prefs.getString('user');
+    setState(() {
+      _initialRoute = userData != null ? '/main' : '/login';
+      _isLoading = false;
+    });
   }
-  
-  final prefs = await SharedPreferences.getInstance();
-  final userData = prefs.getString('user');
 
-  runApp(AppLifecycleManager(
-    child: MyApp(initialRoute: userData != null ? '/main' : '/login'),
-  ));
+  Future<bool> _checkAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+      final versionInfo = await ApiService.fetchAppVersionInfo();
+      if (versionInfo != null) {
+        final minVersion = versionInfo['min_version'];
+        final updateUrl = versionInfo['update_url'];
+        if (_compareVersion(currentVersion, minVersion) < 0) {
+          _updateUrl = updateUrl;
+          return false;
+        }
+      }
+      return true;
+    } catch (e) {
+      print('Version check error: $e');
+      return true;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return MaterialApp(
+        home: Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+    if (_forceUpdate) {
+      return MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: AlertDialog(
+              title: Text('กรุณาอัปเดตแอป'),
+              content: Text('แอปเวอร์ชันนี้ไม่รองรับ กรุณาอัปเดตเป็นเวอร์ชันล่าสุด'),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    if (_updateUrl != null && await canLaunch(_updateUrl!)) {
+                      await launch(_updateUrl!);
+                    }
+                  },
+                  child: Text('อัปเดต'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return MaterialApp(
+      title: '12Chat',
+      debugShowCheckedModeBanner: false,
+      home: _initialRoute == '/main' ? const MainNavigation() : const LoginPage(),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00569D)),
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
+    );
+  }
+}
+
+int _compareVersion(String v1, String v2) {
+  final v1Parts = v1.split('.').map(int.parse).toList();
+  final v2Parts = v2.split('.').map(int.parse).toList();
+  for (int i = 0; i < v1Parts.length; i++) {
+    if (v1Parts[i] < v2Parts[i]) return -1;
+    if (v1Parts[i] > v2Parts[i]) return 1;
+  }
+  return 0;
 }
 
 // สร้าง notification channel

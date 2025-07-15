@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'unified_socket_service.dart';
@@ -1341,5 +1341,18 @@ class ApiService {
         });
       }
     }
+  }
+
+  static Future<Map<String, dynamic>?> fetchAppVersionInfo() async {
+    try {
+      final response = await http.get( Uri.parse('$baseUrl/api/app_version'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['data'];
+      }
+    } catch (e) {
+      print('fetchAppVersionInfo error: $e');
+    }
+    return null;
   }
 }
