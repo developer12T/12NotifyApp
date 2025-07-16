@@ -390,7 +390,7 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
     try {
       final conversationId = '${currentUserId}_${widget.recipientId}';
       final subscriptionData = {
-        'senderId': currentUserId,
+        'employeeId': currentUserId,
         'recipientId': widget.recipientId,
         'conversationId': conversationId,
       };
@@ -931,6 +931,8 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
 
       if (response['success'] == true) {
         print('✅ Message sent successfully');
+        print('📊 Response data: $response');
+        
         setState(() {
           // ลบ temp message ออก
           messages.removeWhere((m) =>
@@ -938,6 +940,17 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
             m['message'] == messageText &&
             m['sender']?['employeeID'] == currentUserId
           );
+          
+          // เพิ่มข้อความจริงจาก response
+          if (response['data'] != null) {
+            final messageData = response['data'];
+            final safeMessage = _createSafeMessage(messageData);
+            messages.add(safeMessage);
+            _sortMessagesByTime();
+            print('✅ Added real message from response');
+            print('📝 Message ID: ${safeMessage['_id']}');
+          }
+          
           _clearReply();
         });
       } else {
@@ -1079,23 +1092,16 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
       // อัพเดตข้อความชั่วคราว
       if (mounted) {
         setState(() {
-          final index = messages.indexWhere((m) => m['isSending'] == true);
-          if (index != -1) {
-            messages[index] = {
-              ...messages[index],
-              '_id': response['_id'],
-              'sender': response['sender'],
-              'timestamp': response['timestamp'],
-              'isRead': response['isRead'] ?? false,
-              'isSending': false,
-              'fileUrl': response['fileUrl'],
-              'fileName': response['fileName'],
-              'fileType': response['fileType'],
-            };
-            
-            if (response['message'] != null) {
-              messages[index]['message'] = response['message'];
-            }
+          // ลบ temp message ออก
+          messages.removeWhere((m) => m['isSending'] == true);
+          
+          // เพิ่มข้อความจริงจาก response
+          if (response != null) {
+            final safeMessage = _createSafeMessage(response);
+            messages.add(safeMessage);
+            _sortMessagesByTime();
+            print('✅ Added real file message from response');
+            print('📝 Message ID: ${safeMessage['_id']}');
           }
           
           _selectedFile = null;
@@ -1226,13 +1232,24 @@ class _DirectMessagePageState extends State<DirectMessagePage> {
         throw Exception('ไม่สามารถส่งรูปภาพได้');
       }
 
-      // ถ้าส่งสำเร็จ ให้ลบข้อความชั่วคราว
+      // ถ้าส่งสำเร็จ ให้ลบข้อความชั่วคราวและเพิ่มข้อความจริง
       setState(() {
+        // ลบ temp message ออก
         messages.removeWhere((m) =>
           m['isSending'] == true &&
           m['_id'] == tempMessageId &&
           m['sender']?['employeeID'] == currentUserId
         );
+        
+        // เพิ่มข้อความจริงจาก response
+        if (response != null) {
+          final safeMessage = _createSafeMessage(response);
+          messages.add(safeMessage);
+          _sortMessagesByTime();
+          print('✅ Added real image message from response');
+          print('📝 Message ID: ${safeMessage['_id']}');
+        }
+        
         _selectedImage = null;
         _clearReply();
         _messageController.clear();

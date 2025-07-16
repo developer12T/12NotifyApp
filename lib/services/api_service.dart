@@ -17,8 +17,14 @@ class ApiService {
   String? userId;
   static String get baseUrl =>
       // 'http://127.0.0.1:3000';
-      // 'https://apps.onetwotrading.co.th/12chat';
-      'http://192.168.44.106:8006';
+      'https://apps.onetwotrading.co.th/12chat';
+      // 'http://192.168.44.106:8006';
+  
+  // Socket URL for direct socket connection
+  static String get socketUrl =>
+      // 'http://127.0.0.1:3000';
+      'https://apps.onetwotrading.co.th';
+      // 'http://192.168.44.106:8006';
   String? _token;
   bool _isInitialized = false;
 

@@ -3056,22 +3056,22 @@ class _ChatPageState extends State<ChatPage> {
                           children: [
                             // Thai name
                             Text(
-                              sender['fullNameThai'] ?? 'Unknown',
+                              sender['fullName'] ?? 'Unknown',
                               style: const TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             // English name
-                            if (sender['fullName'] != null &&
-                                sender['fullName'] != sender['fullNameThai'])
-                              Text(
-                                sender['fullName']!,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
+                            // if (sender['fullName'] != null &&
+                            //     sender['fullName'] != sender['fullName'])
+                              // Text(
+                              //   sender['fullName']!,
+                              //   style: TextStyle(
+                              //     fontSize: 16,
+                              //     color: Colors.grey[600],
+                              //   ),
+                              // ),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -3097,21 +3097,21 @@ class _ChatPageState extends State<ChatPage> {
                         const SizedBox(height: 24),
                         // Additional info
                         if (sender['role'] != 'bot') ...[
-                          _buildInfoItem(
-                            icon: Icons.email_outlined,
-                            label: 'Email',
-                            value: sender['mail'] ?? 'ไม่ระบุ',
-                          ),
+                          // _buildInfoItem(
+                          //   icon: Icons.email_outlined,
+                          //   label: 'Email',
+                          //   value: sender['mail'] ?? 'ไม่ระบุ',
+                          // ),
                           _buildInfoItem(
                             icon: Icons.business_outlined,
                             label: 'แผนก',
                             value: sender['department'] ?? 'ไม่ระบุ',
                           ),
-                          _buildInfoItem(
-                            icon: Icons.work_outline,
-                            label: 'ตำแหน่ง',
-                            value: sender['positon'] ?? 'ไม่ระบุ',
-                          ),
+                          // _buildInfoItem(
+                          //   icon: Icons.work_outline,
+                          //   label: 'ตำแหน่ง',
+                          //   value: sender['positon'] ?? 'ไม่ระบุ',
+                          // ),
                         ],
                       ],
                     ),

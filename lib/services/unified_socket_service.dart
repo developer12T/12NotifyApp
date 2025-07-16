@@ -24,8 +24,9 @@ class UnifiedSocketService {
   final Map<String, List<Function(dynamic)>> _connectionListeners = {};
   
   // Configuration
-  static String get _baseUrl => ApiService.baseUrl;
-  static const String _socketPath = '/socket.io/';
+  static String get _baseUrl => ApiService.socketUrl;
+  // static const String _socketPath = '/socket.io';
+  static const String _socketPath = '/chatio/socket.io';
   
   // State tracking
   bool _isInitialized = false;

@@ -25,18 +25,27 @@ class _GroupMembersPageState extends State<GroupMembersPage> {
     setState(() { isLoading = true; });
     try {
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/api/rooms/${widget.roomId}/members'),
+        Uri.parse('${ApiService.baseUrl}/api/rooms/${widget.roomId}'),
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        print('API Response: $data'); // Debug log
+        
+        // ตรวจสอบข้อมูลรูปภาพ
+        for (var member in data['data']['members'] ?? []) {
+          print('Member: ${member['fullName']}');
+          print('Profile Image: ${member['profileImage']}');
+        }
+        
         setState(() {
-          members = data['members'] ?? [];
+          members = data['data']['members'] ?? [];
           isLoading = false;
         });
       } else {
         setState(() { isLoading = false; });
       }
     } catch (e) {
+      print('Fetch members error: $e');
       setState(() { isLoading = false; });
     }
   }
@@ -44,7 +53,7 @@ class _GroupMembersPageState extends State<GroupMembersPage> {
   String getRoleLabel(String? role) {
     switch (role?.toLowerCase()) {
       case 'owner': return 'เจ้าของ';
-      case 'admin': return 'แอดมิน';
+      case 'admin': return 'สมาชิก';
       default: return 'สมาชิก';
     }
   }
@@ -53,7 +62,7 @@ class _GroupMembersPageState extends State<GroupMembersPage> {
     final theme = Theme.of(context);
     switch (role?.toLowerCase()) {
       case 'owner': return theme.colorScheme.primary;
-      case 'admin': return Colors.purple;
+      case 'admin': return Colors.grey;
       default: return Colors.grey;
     }
   }
@@ -149,7 +158,7 @@ class _GroupMembersPageState extends State<GroupMembersPage> {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            member['fullNameThai'] ?? member['fullName'] ?? '-',
+                                            member['fullName'] ?? '-',
                                             style: theme.textTheme.titleMedium?.copyWith(
                                               fontWeight: FontWeight.w600,
                                               fontSize: 16,

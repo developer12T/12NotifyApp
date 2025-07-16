@@ -7,6 +7,8 @@ import 'package:marquee/marquee.dart';
 import 'loading_page.dart';
 import 'main_navigation.dart';
 import '../services/fcm_service.dart';
+import 'dart:io';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -22,6 +24,40 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   String _errorMessage = '';
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      // Get current app version
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+      
+      // Try to get version from API
+      final versionInfo = await ApiService.fetchAppVersionInfo();
+      if (versionInfo != null && versionInfo['latest_version'] != null) {
+        setState(() {
+          _version = 'v${versionInfo['latest_version']}';
+        });
+      } else {
+        // Fallback to current app version
+        setState(() {
+          _version = 'v$currentVersion';
+        });
+      }
+    } catch (e) {
+      print('Error loading version: $e');
+      // Fallback to a default version
+      setState(() {
+        _version = 'v1.0.0';
+      });
+    }
+  }
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
@@ -62,10 +98,12 @@ class _LoginPageState extends State<LoginPage> {
         
         await prefs.setString('user', jsonEncode(userData));
 
+      if(Platform.isAndroid){
         // Register FCM token after login
         await FCMService.registerFCMToken();
         FCMService.listenFCMTokenRefresh();
 
+      }
         if (mounted) {
           Navigator.pushReplacement(
     context,
@@ -308,7 +346,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              'Copyright One Two Trading Co., Ltd. All rights reserved.',   
+                              'Copyright One Two Trading Co., Ltd. All rights reserved. $_version',   
                               style: const TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w400,

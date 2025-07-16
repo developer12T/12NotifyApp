@@ -63,13 +63,15 @@ class _MyRootAppState extends State<MyRootApp> {
 
   Future<void> _initializeApp() async {
     // 1. เช็คเวอร์ชัน
-    final versionOk = await _checkAppVersion();
-    if (!versionOk) {
-      setState(() {
-        _forceUpdate = true;
-        _isLoading = false;
-      });
-      return;
+    if (Platform.isAndroid) {
+      final versionOk = await _checkAppVersion();
+      if (!versionOk) {
+        setState(() {
+          _forceUpdate = true;
+          _isLoading = false;
+        });
+        return;
+      }
     }
     // 2. Init Firebase เฉพาะมือถือ
     if (Platform.isAndroid || Platform.isIOS) {
@@ -82,7 +84,8 @@ class _MyRootAppState extends State<MyRootApp> {
     await unifiedSocketService.initialize();
     final memoryManager = MemoryManager();
     if (Platform.isAndroid || Platform.isIOS) {
-      bool firebaseInitialized = await FirebaseTest.testFirebaseInitialization();
+      bool firebaseInitialized =
+          await FirebaseTest.testFirebaseInitialization();
       if (firebaseInitialized) {
         try {
           await FCMService.initialize();
@@ -127,28 +130,143 @@ class _MyRootAppState extends State<MyRootApp> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return MaterialApp(
-        home: Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
     if (_forceUpdate) {
       return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00569D)),
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+        ),
         home: Scaffold(
+          backgroundColor: const Color(0xFFF6F8FB),
           body: Center(
-            child: AlertDialog(
-              title: Text('กรุณาอัปเดตแอป'),
-              content: Text('แอปเวอร์ชันนี้ไม่รองรับ กรุณาอัปเดตเป็นเวอร์ชันล่าสุด'),
-              actions: [
-                TextButton(
-                  onPressed: () async {
-                    if (_updateUrl != null && await canLaunch(_updateUrl!)) {
-                      await launch(_updateUrl!);
-                    }
-                  },
-                  child: Text('อัปเดต'),
-                ),
-              ],
+            child: Container(
+              margin: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Logo
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00569D).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Icon(
+                      Icons.system_update_alt,
+                      size: 40,
+                      color: Color(0xFF00569D),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Title
+                  const Text(
+                    'กรุณาอัปเดตแอป',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF00569D),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Description
+                  const Text(
+                    'แอปเวอร์ชันนี้ไม่รองรับ กรุณาอัปเดตเป็นเวอร์ชันล่าสุดเพื่อใช้งานได้อย่างสมบูรณ์',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey,
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Update Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (_updateUrl != null &&
+                            await canLaunch(_updateUrl!)) {
+                          await launch(_updateUrl!);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00569D),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.download, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'อัปเดตแอป',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // App Info
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00569D).withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset(
+                          'assets/images/logo-onetwo.png',
+                          height: 20,
+                          fit: BoxFit.contain,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          '12Chat',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF00569D),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -157,7 +275,8 @@ class _MyRootAppState extends State<MyRootApp> {
     return MaterialApp(
       title: '12Chat',
       debugShowCheckedModeBanner: false,
-      home: _initialRoute == '/main' ? const MainNavigation() : const LoginPage(),
+      home:
+          _initialRoute == '/main' ? const MainNavigation() : const LoginPage(),
       theme: ThemeData(
         primarySwatch: Colors.blue,
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00569D)),
@@ -182,10 +301,13 @@ Future<void> _createNotificationChannel() async {
   if (Platform.isAndroid) {
     final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
         FlutterLocalNotificationsPlugin();
-    
-    final androidPlugin = flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    
+
+    final androidPlugin =
+        flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+
     if (androidPlugin != null) {
       await androidPlugin.createNotificationChannel(
         const AndroidNotificationChannel(
@@ -203,8 +325,6 @@ Future<void> _createNotificationChannel() async {
   }
 }
 
-
-
 // Background notification tap handler
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse notificationResponse) {
@@ -213,14 +333,15 @@ void notificationTapBackground(NotificationResponse notificationResponse) {
 
 class AppLifecycleManager extends StatefulWidget {
   final Widget child;
-  
+
   const AppLifecycleManager({super.key, required this.child});
 
   @override
   State<AppLifecycleManager> createState() => _AppLifecycleManagerState();
 }
 
-class _AppLifecycleManagerState extends State<AppLifecycleManager> with WidgetsBindingObserver {
+class _AppLifecycleManagerState extends State<AppLifecycleManager>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -236,7 +357,7 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager> with WidgetsB
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    
+
     switch (state) {
       case AppLifecycleState.resumed:
         print('App resumed');
@@ -264,7 +385,7 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager> with WidgetsB
 
 class MyApp extends StatelessWidget {
   final String initialRoute;
-  
+
   const MyApp({super.key, required this.initialRoute});
 
   @override

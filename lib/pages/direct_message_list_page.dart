@@ -809,7 +809,7 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
     try {
       final conversationId = '${currentUserId}_$participantId';
       final joinData = {
-        'senderId': currentUserId,
+        'employeeId': currentUserId,
         'recipientId': participantId,
         'conversationId': conversationId,
       };
