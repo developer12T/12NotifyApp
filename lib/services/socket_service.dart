@@ -5,7 +5,7 @@ import 'unified_socket_service.dart';
 import 'desktop_notification_service.dart';
 import 'dart:convert';
 import 'dart:io';
-
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -543,7 +543,7 @@ class SocketService {
   }
 
   /// จัดการการแจ้งเตือนข้อความใหม่ในแชทกลุ่ม
-  void _handleGroupChatNotification(dynamic data) {
+  void _handleGroupChatNotification(dynamic data) async {
     try {
       print('=== SocketService: Handling Group Chat Notification ===');
       print('Data: $data');
@@ -553,7 +553,21 @@ class SocketService {
         final roomName = data['roomName']?.toString() ?? 'กลุ่ม';
         final message = data['message']?.toString() ?? 'ข้อความใหม่';
         final sender = data['sender'];
+        final senderId = sender?['employeeID']?.toString();
         final unreadCount = data['unreadCount'] ?? 1;
+        
+        // ตรวจสอบว่าเป็นข้อความสำหรับผู้ใช้ปัจจุบันหรือไม่
+        final currentUserId = await _getCurrentUserId();
+        if (currentUserId == null) {
+          print('=== SocketService: Current user ID not found, skipping notification ===');
+          return;
+        }
+        
+        // ตรวจสอบว่าไม่ใช่ข้อความที่เราส่งเอง
+        if (senderId == currentUserId) {
+          print('=== SocketService: Message sent by current user, skipping notification ===');
+          return;
+        }
         
         String senderName = 'ผู้ใช้';
         if (sender is Map<String, dynamic>) {
@@ -565,9 +579,12 @@ class SocketService {
         print('=== SocketService: Group Chat Notification Details ===');
         print('Room ID: $roomId');
         print('Room Name: $roomName');
+        print('Current User ID: $currentUserId');
+        print('Sender ID: $senderId');
         print('Sender: $senderName');
         print('Message: $message');
         print('Unread Count: $unreadCount');
+        print('=== SocketService: Showing notification ===');
         
         // ตรวจสอบว่าเป็น background service หรือไม่
         bool isInBackgroundService = _isInBackgroundService();
@@ -608,16 +625,39 @@ class SocketService {
   }
 
   /// จัดการการแจ้งเตือนข้อความใหม่ใน direct message
-  void _handleDirectMessageNotification(dynamic data) {
+  void _handleDirectMessageNotification(dynamic data) async {
     try {
       print('=== SocketService: Handling Direct Message Notification ===');
       print('Data: $data');
       
       if (data is Map<String, dynamic>) {
-        final senderId = data['senderId']?.toString();
-        final message = data['message']?.toString() ?? 'ข้อความใหม่';
+        final recipientId = data['recipientId']?.toString();
         final sender = data['sender'];
+        final senderId = sender?['employeeID']?.toString();
+        final message = data['message']?.toString() ?? 'ข้อความใหม่';
         final unreadCount = data['unreadCount'] ?? 1;
+        
+        // ตรวจสอบว่าเป็นข้อความสำหรับผู้ใช้ปัจจุบันหรือไม่
+        final currentUserId = await _getCurrentUserId();
+        if (currentUserId == null) {
+          print('=== SocketService: Current user ID not found, skipping notification ===');
+          return;
+        }
+        
+        // ตรวจสอบว่า recipientId ตรงกับ currentUserId หรือไม่
+        if (recipientId != currentUserId) {
+          print('=== SocketService: Notification not for current user ===');
+          print('Recipient ID: $recipientId');
+          print('Current User ID: $currentUserId');
+          print('=== SocketService: Skipping notification ===');
+          return;
+        }
+        
+        // ตรวจสอบว่าไม่ใช่ข้อความที่เราส่งเอง
+        if (senderId == currentUserId) {
+          print('=== SocketService: Message sent by current user, skipping notification ===');
+          return;
+        }
         
         String senderName = 'ผู้ใช้';
         if (sender is Map<String, dynamic>) {
@@ -627,10 +667,13 @@ class SocketService {
         }
         
         print('=== SocketService: Direct Message Notification Details ===');
+        print('Recipient ID: $recipientId');
+        print('Current User ID: $currentUserId');
         print('Sender ID: $senderId');
         print('Sender: $senderName');
         print('Message: $message');
         print('Unread Count: $unreadCount');
+        print('=== SocketService: Showing notification ===');
         
         // ตรวจสอบว่าเป็น background service หรือไม่
         bool isInBackgroundService = _isInBackgroundService();
@@ -758,6 +801,25 @@ class SocketService {
     print('=== SocketService: Refreshing background subscriptions ===');
     subscribeToAnnouncements();
     subscribeToAllNotifications();
+  }
+
+  /// ดึง User ID ของผู้ใช้ปัจจุบัน
+  Future<String?> _getCurrentUserId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userJson = prefs.getString('user');
+      
+      if (userJson != null) {
+        final userData = jsonDecode(userJson);
+        final employeeId = userData['employeeID']?.toString();
+        return employeeId;
+      }
+      
+      return null;
+    } catch (e) {
+      print('Error getting current user ID: $e');
+      return null;
+    }
   }
 
   /// ตรวจสอบว่าควรข้ามการแจ้งเตือนจาก Socket หรือไม่

@@ -262,7 +262,7 @@ class _DirectMessageListPageState extends State<DirectMessageListPage>
         // Subscribe to direct message updates for the current user
         // This will allow us to receive updateChatList events
         final subscriptionData = {
-          'senderId': currentUserId,
+          'employeeId': currentUserId,
           'recipientId': currentUserId,
         };
         

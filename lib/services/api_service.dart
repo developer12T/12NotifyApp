@@ -1295,7 +1295,7 @@ class ApiService {
         // Subscribe to direct message updates with more detailed data
         print('Subscribing to direct message updates...');
         final directMessageData = {
-          'senderId': userId,
+          'employeeId': userId,
           'recipientId': userId,
         };
         print('Direct message subscription data: $directMessageData');

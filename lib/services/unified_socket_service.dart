@@ -242,7 +242,7 @@ class UnifiedSocketService {
     try {
       final conversationId = '${senderId}_$recipientId';
       socket.emit('subscribeDirectMessages', {
-        'senderId': senderId,
+        'employeeId': senderId,
         'recipientId': recipientId,
         'conversationId': conversationId,
       });
@@ -262,7 +262,7 @@ class UnifiedSocketService {
     try {
       final conversationId = '${senderId}_$recipientId';
       socket.emit('unsubscribeDirectMessages', {
-        'senderId': senderId,
+        'employeeId': senderId,
         'recipientId': recipientId,
         'conversationId': conversationId,
       });
